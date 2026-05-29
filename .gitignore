@@ -9,7 +9,7 @@ review-view.db-wal
 # 运行时数据
 repos/
 # 编译产物
-server
+/server
 review_app
 review-view
 __debug_bin*
