@@ -1,0 +1,29 @@
+.worktrees/
+.DS_Store
+.idea/
+.claude/
+# 数据库文件
+review-view.db
+review-view.db-shm
+review-view.db-wal
+# 运行时数据
+repos/
+# 编译产物
+server
+review_app
+review-view
+__debug_bin*
+# 日志
+*.jsonl
+*.log
+# 部署脚本和配置（含服务器信息）
+deploy.sh
+CLAUDE.md
+# 设计文件
+docs/pencil-new.pen
+# repomix 打包
+repomix-output.xml
+repomix.config.json
+# 前端构建产物
+web/dist/
+frontend/node_modules/

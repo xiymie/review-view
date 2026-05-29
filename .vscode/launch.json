@@ -1,0 +1,17 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Debug Server",
+      "type": "go",
+      "request": "launch",
+      "mode": "debug",
+      "program": "${workspaceFolder}/cmd/server",
+      "env": {
+        "APP_ADDR": ":18083",
+        "DATABASE_DSN": "file:review-view.db?_foreign_keys=on"
+      },
+      "showLog": true
+    }
+  ]
+}
