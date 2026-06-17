@@ -4,12 +4,12 @@
 
 ## 特性
 
-- 🚀 **单二进制部署**：前后端打包在一个可执行文件中，开箱即用
+- 🚀 **权限分离**：每一个开发拥有自己的项目空间，配置自己的代码仓库token，仅能管理自己的代码审核
 - 🤖 **多 LLM 支持**：OpenAI / Anthropic / Ollama / DeepSeek / Gemini / Mistral / Claude CLI
-- 📦 **项目管理**：支持多项目、多分支、自定义 Prompt
+- 📦 **项目管理**：支持全局和自定义 Prompt
 - 🔄 **灵活触发**：手动触发 + Webhook 自动触发
-- 📊 **任务调度**：并发控制、超时保护、取消/重试
-- 🔐 **凭据管理**：支持私有仓库 HTTPS 认证
+- 📊 **结果推送**：扫描结构可配置推送邮箱或企业微信
+- 🔐 **敏感词管理**：支持敏感词替换，绕过模型网关的封禁。同时支持敏感词检测，避免出现真实敏感信息泄露
 - 📈 **详细日志**：任务执行日志、Token 消耗统计
 - 🎨 **现代 UI**：Vue 3 + Element Plus
 
@@ -26,7 +26,7 @@
 **方式 1：从源码编译**
 
 ```bash
-git clone https://github.com/your-username/review-view.git
+git clone https://github.com/xiymie/review-view.git
 cd review-view
 
 # 编译（前端资源会自动打包）
@@ -38,15 +38,15 @@ go build -o review-view ./cmd/server
 
 **方式 2：下载预编译二进制**
 
-从 [Releases](https://github.com/your-username/review-view/releases) 下载对应平台的二进制文件。
+从 [Releases](https://github.com/xiymie/review-view/releases) 下载对应平台的二进制文件。
 
 ### 配置
 
 通过环境变量配置：
 
 ```bash
-# 监听地址（默认 :8080）
-export APP_ADDR=:8080
+# 监听地址（默认 :18083）
+export APP_ADDR=:18083
 
 # 数据库路径（默认 SQLite）
 export DATABASE_DSN="file:review-view.db?_foreign_keys=on"
@@ -54,7 +54,7 @@ export DATABASE_DSN="file:review-view.db?_foreign_keys=on"
 
 ### 使用流程
 
-1. 访问 `http://localhost:8080`
+1. 访问 `http://localhost:5173`
 2. 在"模型配置"中添加 LLM 配置（API Key 或 CLI 模式）
 3. 在"仓库凭据"中添加私有仓库认证（可选）
 4. 在"项目"中创建项目，关联 Git 仓库和模型
@@ -117,10 +117,10 @@ review-view/
 
 ```bash
 # 审查最新提交
-curl -X POST http://localhost:8080/webhook/{projectId}
+curl -X POST http://localhost:5173/webhook/{projectId}
 
 # 审查指定提交
-curl -X POST http://localhost:8080/webhook/{projectId} \
+curl -X POST http://localhost:5173/webhook/{projectId} \
   -H "Content-Type: application/json" \
   -d '{"commit": "abc123"}'
 ```
@@ -253,7 +253,7 @@ After=network.target
 Type=simple
 User=review
 WorkingDirectory=/opt/review-view
-Environment="APP_ADDR=:8080"
+Environment="APP_ADDR=:18083"
 Environment="DATABASE_DSN=file:/var/lib/review-view/review-view.db?_foreign_keys=on"
 ExecStart=/opt/review-view/review-view
 Restart=on-failure
@@ -270,7 +270,7 @@ server {
     server_name review.example.com;
 
     location / {
-        proxy_pass http://127.0.0.1:8080;
+        proxy_pass http://127.0.0.1:18083;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
