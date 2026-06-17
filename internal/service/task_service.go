@@ -150,7 +150,7 @@ func (s *TaskService) Retry(ctx context.Context, taskID int64) (*model.Task, err
 	if err != nil {
 		return nil, err
 	}
-	if task.Status != model.TaskStatusFailed && task.Status != model.TaskStatusCancelled {
+	if task.Status != model.TaskStatusFailed && task.Status != model.TaskStatusCancelled && task.Status != model.TaskStatusCompleted {
 		return nil, fmt.Errorf("task %d cannot be retried from status %s", task.ID, task.Status)
 	}
 
@@ -224,5 +224,7 @@ func (s *TaskService) populateTaskChanges(ctx context.Context, repoDir string, t
 	commitLog, _ := s.repoManager.BuildCommitLog(ctx, repoDir, task.FromCommit, task.ToCommit)
 	task.DiffContent = diffNameStatus
 	task.CommitMessages = commitLog
+	task.FromSubject, _ = s.repoManager.CommitSubject(ctx, repoDir, task.FromCommit)
+	task.ToSubject, _ = s.repoManager.CommitSubject(ctx, repoDir, task.ToCommit)
 	return nil
 }

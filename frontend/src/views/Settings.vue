@@ -91,6 +91,12 @@
           <div class="field-tip">邮件客户端中"发件人"栏显示的名称，留空则只显示邮箱地址</div>
         </el-form-item>
 
+        <el-form-item label="发送测试邮件">
+          <el-input v-model="testEmailTo" placeholder="收件地址" clearable style="max-width: 320px" />
+          <el-button style="margin-left: 8px" :loading="testLoading" @click="handleTestEmail">发送测试</el-button>
+          <div class="field-tip">使用上方填写的 SMTP 配置（密码留空则使用已保存的）发送一封测试邮件</div>
+        </el-form-item>
+
         <el-form-item>
           <el-button type="primary" @click="handleSave">保存设置</el-button>
         </el-form-item>
@@ -101,10 +107,12 @@
 
 <script setup>
 import { ref, onMounted } from 'vue'
-import { ElMessage } from 'element-plus'
-import { getSettings, updateSettings } from '../api/settings'
+import { ElMessage, ElNotification } from 'element-plus'
+import { getSettings, updateSettings, testEmail } from '../api/settings'
 
 const loading = ref(false)
+const testLoading = ref(false)
+const testEmailTo = ref('')
 
 const form = ref({
   max_concurrent_tasks: 3,
@@ -145,6 +153,32 @@ const handleSave = async () => {
     ElMessage.error(err.response?.data?.message || '操作失败')
   } finally {
     loading.value = false
+  }
+}
+
+const handleTestEmail = async () => {
+  if (!testEmailTo.value) {
+    ElMessage.warning('请先填写收件地址')
+    return
+  }
+  testLoading.value = true
+  try {
+    const res = await testEmail({
+      to:             testEmailTo.value,
+      smtp_host:      form.value.smtp_host,
+      smtp_port:      form.value.smtp_port,
+      smtp_username:  form.value.smtp_username,
+      smtp_password:  form.value.smtp_password,
+      smtp_from:      form.value.smtp_from,
+      smtp_from_name: form.value.smtp_from_name,
+      smtp_tls:       form.value.smtp_tls,
+    })
+    ElNotification({ title: '发送成功', message: res.data.message, type: 'success', duration: 3000 })
+  } catch (err) {
+    const msg = err.response?.data?.message || '发送失败'
+    ElNotification({ title: '发送失败', message: msg, type: 'error', duration: 3000 })
+  } finally {
+    testLoading.value = false
   }
 }
 </script>

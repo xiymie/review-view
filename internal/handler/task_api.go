@@ -108,6 +108,8 @@ func (h *TaskHandler) APIList(c *gin.Context) {
 			"status":         t.Status,
 			"from_commit":    t.FromCommit,
 			"to_commit":      t.ToCommit,
+			"from_subject":   t.FromSubject,
+			"to_subject":     t.ToSubject,
 			"triggered_by":   t.TriggeredBy,
 			"created_at":     t.CreatedAt.Format("2006-01-02 15:04:05"),
 		})
@@ -155,6 +157,8 @@ func (h *TaskHandler) APIGet(c *gin.Context) {
 			"status":          task.Status,
 			"from_commit":     task.FromCommit,
 			"to_commit":       task.ToCommit,
+			"from_subject":    task.FromSubject,
+			"to_subject":      task.ToSubject,
 			"triggered_by":    task.TriggeredBy,
 			"error_message":   task.ErrorMessage,
 			"result":          task.Result,

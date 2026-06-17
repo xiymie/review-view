@@ -73,7 +73,7 @@
 
 ## 技术约束
 
-- 单二进制，所有前端资源通过 `go:embed` 打包
+- 单二进制，前端（Vue 3 + Element Plus）构建产物通过 `go:embed` 打包
 - 无认证，默认内网使用
 - 数据库使用 SQLite，GORM AutoMigrate 建表
 - Git 操作通过 `os/exec` 调用本地 `git` 命令

@@ -5,6 +5,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"review-view/internal/model"
+	"review-view/internal/notify"
 	"review-view/internal/service"
 )
 
@@ -78,4 +79,38 @@ func (h *SettingsHandler) APIUpdate(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{"message": "ok"})
+}
+
+func (h *SettingsHandler) APITestEmail(c *gin.Context) {
+	var req struct {
+		To           string `json:"to"`
+		SMTPHost     string `json:"smtp_host"`
+		SMTPPort     string `json:"smtp_port"`
+		SMTPUsername string `json:"smtp_username"`
+		SMTPPassword string `json:"smtp_password"`
+		SMTPFrom     string `json:"smtp_from"`
+		SMTPFromName string `json:"smtp_from_name"`
+		SMTPTLS      string `json:"smtp_tls"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"message": err.Error()})
+		return
+	}
+	if req.To == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"message": "收件地址不能为空"})
+		return
+	}
+
+	// 密码留空时，从数据库读取已保存的密码
+	password := req.SMTPPassword
+	if password == "" {
+		password, _ = h.service.GetRaw(model.GlobalConfigKeySMTPPassword)
+	}
+
+	cfg := notify.ParseSMTPConfig(req.SMTPHost, req.SMTPPort, req.SMTPUsername, password, req.SMTPFrom, req.SMTPFromName, req.SMTPTLS)
+	if err := notify.SendTestEmail(cfg, req.To); err != nil {
+		c.JSON(http.StatusBadGateway, gin.H{"message": "发送失败: " + err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"message": "测试邮件已发送，请检查收件箱"})
 }

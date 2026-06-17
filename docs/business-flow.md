@@ -12,10 +12,8 @@ internal/
   service/                   业务逻辑
   review/                    Review 核心（git diff + LLM/CLI 调用）
   handler/                   Gin HTTP handler
-  render/                    Markdown -> HTML（goldmark）
-web/
-  static/                    CSS/JS
-  templates/                 Go HTML 模板
+frontend/                    Vue 3 前端源码
+web/                         前端构建产物（go:embed 打包）
 ```
 
 依赖注入在 `internal/app/router.go` 中手动构造：DB -> Stores -> Services -> Handlers -> Router。

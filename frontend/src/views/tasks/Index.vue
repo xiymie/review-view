@@ -61,9 +61,21 @@
           </template>
         </el-table-column>
 
-        <el-table-column label="Commit 范围" min-width="180">
+        <el-table-column label="Commit 范围" min-width="320">
           <template #default="{ row }">
-            <code class="code-tag">{{ commitRange(row) }}</code>
+            <div class="commit-cell">
+              <template v-if="row.from_commit">
+                <span class="commit-end" :title="row.from_subject">
+                  <code class="code-tag">{{ row.from_commit.slice(0,7) }}</code>
+                  <span v-if="row.from_subject" class="commit-subject">{{ row.from_subject }}</span>
+                </span>
+                <span class="commit-arrow">→</span>
+              </template>
+              <span class="commit-end" :title="row.to_subject">
+                <code class="code-tag">{{ row.to_commit?.slice(0,7) }}</code>
+                <span v-if="row.to_subject" class="commit-subject">{{ row.to_subject }}</span>
+              </span>
+            </div>
           </template>
         </el-table-column>
 
@@ -83,13 +95,14 @@
 
         <el-table-column label="创建时间" width="155" prop="created_at" />
 
-        <el-table-column label="操作" width="160">
+        <el-table-column label="操作" width="200">
           <template #default="{ row }">
             <div class="action-cell">
               <el-button link type="primary" size="small" @click="router.push(`/tasks/${row.id}`)">查看</el-button>
               <span class="sep">·</span>
               <el-button v-if="row.status === 'running'" link type="warning" size="small" @click="cancelTask(row)">取消</el-button>
               <el-button v-if="row.status === 'failed' || row.status === 'cancelled'" link type="primary" size="small" @click="retryTask(row)">重试</el-button>
+              <el-button v-if="row.status === 'completed'" link type="primary" size="small" @click="rescanTask(row)">再次扫描</el-button>
               <template v-if="!['running','pending'].includes(row.status)">
                 <span class="sep">·</span>
                 <el-button link type="danger" size="small" @click="handleDelete(row)">删除</el-button>
@@ -187,11 +200,6 @@ onMounted(async () => {
 })
 onUnmounted(() => clearInterval(autoRefreshTimer))
 
-const commitRange = (row) => {
-  if (row.from_commit) return `${row.from_commit.slice(0,7)}..${row.to_commit.slice(0,7)}`
-  return row.to_commit?.slice(0, 7)
-}
-
 const statusLabel = (status) => {
   const map = { completed: '已完成', running: '运行中', pending: '等待中', failed: '失败', cancelled: '已取消' }
   return map[status] ?? status
@@ -213,6 +221,16 @@ const retryTask = async (row) => {
     router.push('/tasks/' + data.task_id)
   } catch (e) {
     ElMessage.error('重试任务失败')
+  }
+}
+
+const rescanTask = async (row) => {
+  try {
+    await ElMessageBox.confirm(`确认对相同 commit 范围再次发起扫描？`, '再次扫描', { confirmButtonText: '确认', cancelButtonText: '取消', type: 'warning' })
+    const { data } = await apiRetryTask(row.id)
+    router.push('/tasks/' + data.task_id)
+  } catch (e) {
+    if (e !== 'cancel' && e?.type !== 'cancel') ElMessage.error(e.response?.data?.message || '再次扫描失败')
   }
 }
 
@@ -317,6 +335,33 @@ const handleDelete = async (row) => {
   color: #475569;
   padding: 2px 7px;
   border-radius: 5px;
+}
+
+.commit-cell {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+.commit-end {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  flex: 1 1 0;
+}
+.commit-arrow {
+  color: #94a3b8;
+  font-size: 13px;
+  flex-shrink: 0;
+}
+.commit-subject {
+  font-size: 12.5px;
+  color: #64748b;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
 }
 
 /* 状态 pill */

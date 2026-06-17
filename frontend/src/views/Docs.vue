@@ -8,7 +8,7 @@
       <header class="hero">
         <div class="hero-inner">
           <div class="hero-eyebrow">
-            <span class="eyebrow-dot" />文档 · Review View
+            <span class="eyebrow-dot" />文档 · 代码审核平台
           </div>
           <h1>使用指南</h1>
           <p>AI 驱动的自托管代码审查平台。从接入模型到 Webhook 自动触发，全流程使用说明。</p>
@@ -27,7 +27,7 @@
           <span class="anchor-tag">01</span>
           <h2>平台简介</h2>
         </div>
-        <p class="intro-text">Review View 是一款可私有化部署的 AI 代码审查工具，将 Git 仓库与大语言模型结合，在代码推送或手动触发时自动执行 Code Review，结果通过 Web 界面实时呈现。</p>
+        <p class="intro-text">代码审核平台是一款可私有化部署的 AI 代码审查工具，将 Git 仓库与大语言模型结合，在代码推送或手动触发时自动执行 Code Review，结果通过 Web 界面实时呈现。</p>
 
         <div class="feat-grid">
           <div class="feat-card" v-for="f in features" :key="f.title">

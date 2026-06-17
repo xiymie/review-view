@@ -49,6 +49,15 @@
             />
             <div class="field-tip">所有地址将同时收到邮件，适合团队共享审计结果</div>
           </el-form-item>
+          <div class="email-test-bar">
+            <el-button
+              size="small"
+              :loading="testing"
+              :disabled="!form.notify_enabled || form.notify_emails.trim() === ''"
+              @click="handleTestEmail"
+            >发送测试邮件</el-button>
+            <span class="field-tip">使用管理员配置的 SMTP，向上方收件地址发送一封测试邮件，确认是否可用</span>
+          </div>
         </div>
       </div>
 
@@ -117,10 +126,11 @@
 <script setup>
 import { ref, computed, onMounted } from 'vue'
 import { ElMessage } from 'element-plus'
-import { getMe, updateMe } from '../../api/users'
+import { getMe, updateMe, testMyEmail } from '../../api/users'
 
 const loading = ref(false)
 const saving = ref(false)
+const testing = ref(false)
 
 const form = ref({
   notify_enabled: false,
@@ -157,6 +167,22 @@ async function handleSave() {
     ElMessage.error(err.response?.data?.message || '保存失败')
   } finally {
     saving.value = false
+  }
+}
+
+async function handleTestEmail() {
+  if (form.value.notify_emails.trim() === '') {
+    ElMessage.warning('请先填写收件地址')
+    return
+  }
+  testing.value = true
+  try {
+    const res = await testMyEmail({ notify_emails: form.value.notify_emails })
+    ElMessage.success(res.data.message || '测试邮件已发送')
+  } catch (err) {
+    ElMessage.error(err.response?.data?.message || '发送失败')
+  } finally {
+    testing.value = false
   }
 }
 </script>
@@ -251,6 +277,13 @@ async function handleSave() {
 
 .channel-body { padding: 16px 20px; }
 .channel-body :deep(.el-form-item) { margin-bottom: 0; }
+.email-test-bar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: 12px;
+}
+.email-test-bar .field-tip { margin-top: 0; }
 .channel-body :deep(.el-form-item__label) {
   font-size: 13px;
   font-weight: 500;

@@ -88,7 +88,7 @@ func NewServer(cfg config.Config) (*Server, error) {
 		Credentials:    handler.NewCredentialHandler(credentialService, stores.Users),
 		Auth:           handler.NewAuthHandler(stores.Users),
 		SensitiveWords: handler.NewSensitiveWordHandler(sensitiveWordService),
-		Users:          handler.NewUserHandler(stores.Users),
+		Users:          handler.NewUserHandler(stores.Users, settingsService),
 	})
 
 	// 清理上次运行残留的 running 任务

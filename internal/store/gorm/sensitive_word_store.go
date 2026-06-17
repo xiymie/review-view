@@ -26,3 +26,8 @@ func (s *SensitiveWordStore) List() ([]model.SensitiveWord, error) {
 	var words []model.SensitiveWord
 	return words, s.db.Order("id asc").Find(&words).Error
 }
+
+func (s *SensitiveWordStore) ListByType(wordType string) ([]model.SensitiveWord, error) {
+	var words []model.SensitiveWord
+	return words, s.db.Where("type = ?", wordType).Order("id asc").Find(&words).Error
+}

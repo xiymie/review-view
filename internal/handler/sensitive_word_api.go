@@ -27,14 +27,15 @@ func (h *SensitiveWordHandler) APIList(c *gin.Context) {
 
 func (h *SensitiveWordHandler) APICreate(c *gin.Context) {
 	var req struct {
+		Type        string `json:"type"`
 		Original    string `json:"original" binding:"required"`
-		Replacement string `json:"replacement" binding:"required"`
+		Replacement string `json:"replacement"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
-	word, err := h.service.Create(req.Original, req.Replacement)
+	word, err := h.service.Create(req.Type, req.Original, req.Replacement)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
@@ -49,14 +50,15 @@ func (h *SensitiveWordHandler) APIUpdate(c *gin.Context) {
 		return
 	}
 	var req struct {
+		Type        string `json:"type"`
 		Original    string `json:"original" binding:"required"`
-		Replacement string `json:"replacement" binding:"required"`
+		Replacement string `json:"replacement"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
-	word, err := h.service.Update(id, req.Original, req.Replacement)
+	word, err := h.service.Update(id, req.Type, req.Original, req.Replacement)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return

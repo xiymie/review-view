@@ -3,7 +3,7 @@
     <div class="page-hero">
       <div class="hero-content">
         <h1 class="hero-title">敏感词管理</h1>
-        <p class="hero-sub">发送给上游 LLM 前自动替换，收到响应后自动还原</p>
+        <p class="hero-sub">替换：发送给 LLM 前脱敏并在响应后还原；检测：扫描代码命中并写入审核报告</p>
       </div>
       <div class="hero-actions">
         <el-button type="primary" :icon="Plus" @click="openDialog()">新增</el-button>
@@ -16,8 +16,20 @@
 
     <el-card shadow="never" class="table-card">
       <el-table :data="words" v-loading="loading" stripe>
+        <el-table-column label="类型" width="100">
+          <template #default="{ row }">
+            <el-tag :type="row.Type === 'detect' ? 'danger' : 'primary'" size="small">
+              {{ row.Type === 'detect' ? '检测' : '替换' }}
+            </el-tag>
+          </template>
+        </el-table-column>
         <el-table-column label="原始词" prop="Original" />
-        <el-table-column label="替换词" prop="Replacement" />
+        <el-table-column label="替换词">
+          <template #default="{ row }">
+            <span v-if="row.Type === 'detect'" class="muted">—</span>
+            <span v-else>{{ row.Replacement }}</span>
+          </template>
+        </el-table-column>
         <el-table-column label="创建时间" prop="CreatedAt" width="180"
           :formatter="(r) => new Date(r.CreatedAt).toLocaleString()" />
         <el-table-column label="操作" width="140" align="right">
@@ -36,10 +48,16 @@
 
     <el-dialog v-model="dialogVisible" :title="form.ID ? '编辑敏感词' : '新增敏感词'" width="420px" @closed="resetForm">
       <el-form :model="form" :rules="rules" ref="formRef" label-width="80px">
-        <el-form-item label="原始词" prop="Original">
-          <el-input v-model="form.Original" placeholder="发送前被替换的词" />
+        <el-form-item label="类型" prop="Type">
+          <el-radio-group v-model="form.Type">
+            <el-radio-button label="replace">替换</el-radio-button>
+            <el-radio-button label="detect">检测</el-radio-button>
+          </el-radio-group>
         </el-form-item>
-        <el-form-item label="替换词" prop="Replacement">
+        <el-form-item :label="form.Type === 'detect' ? '检测词' : '原始词'" prop="Original">
+          <el-input v-model="form.Original" :placeholder="form.Type === 'detect' ? '在代码中检索的词' : '发送前被替换的词'" />
+        </el-form-item>
+        <el-form-item v-if="form.Type !== 'detect'" label="替换词" prop="Replacement">
           <el-input v-model="form.Replacement" placeholder="实际发给上游的词" />
         </el-form-item>
       </el-form>
@@ -65,11 +83,20 @@ const loading = ref(false)
 const saving = ref(false)
 const dialogVisible = ref(false)
 const formRef = ref(null)
-const form = ref({ ID: null, Original: '', Replacement: '' })
+const form = ref({ ID: null, Type: 'replace', Original: '', Replacement: '' })
 
 const rules = {
   Original: [{ required: true, message: '请输入原始词', trigger: 'blur' }],
-  Replacement: [{ required: true, message: '请输入替换词', trigger: 'blur' }],
+  Replacement: [{
+    validator: (rule, value, callback) => {
+      if (form.value.Type !== 'detect' && !value) {
+        callback(new Error('请输入替换词'))
+      } else {
+        callback()
+      }
+    },
+    trigger: 'blur',
+  }],
 }
 
 async function load() {
@@ -84,8 +111,8 @@ async function load() {
 
 function openDialog(row = null) {
   form.value = row
-    ? { ID: row.ID, Original: row.Original, Replacement: row.Replacement }
-    : { ID: null, Original: '', Replacement: '' }
+    ? { ID: row.ID, Type: row.Type || 'replace', Original: row.Original, Replacement: row.Replacement }
+    : { ID: null, Type: 'replace', Original: '', Replacement: '' }
   dialogVisible.value = true
 }
 
@@ -103,13 +130,15 @@ async function save() {
   try {
     if (form.value.ID) {
       await updateSensitiveWord(form.value.ID, {
+        type: form.value.Type,
         original: form.value.Original,
-        replacement: form.value.Replacement,
+        replacement: form.value.Type === 'detect' ? '' : form.value.Replacement,
       })
     } else {
       await createSensitiveWord({
+        type: form.value.Type,
         original: form.value.Original,
-        replacement: form.value.Replacement,
+        replacement: form.value.Type === 'detect' ? '' : form.value.Replacement,
       })
     }
     dialogVisible.value = false
@@ -154,4 +183,5 @@ onMounted(load)
 .c2 { width: 100px; height: 100px; right: 60px; bottom: -30px; }
 
 .table-card { border-radius: 10px; margin: 20px 36px; }
+.muted { color: #94a3b8; }
 </style>

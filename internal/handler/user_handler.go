@@ -4,19 +4,23 @@ import (
 	"fmt"
 	"net/http"
 	"strconv"
+	"strings"
 
 	"github.com/gin-gonic/gin"
 	"golang.org/x/crypto/bcrypt"
 	"review-view/internal/model"
+	"review-view/internal/notify"
+	"review-view/internal/service"
 	"review-view/internal/store"
 )
 
 type UserHandler struct {
-	users store.UserStore
+	users    store.UserStore
+	settings *service.SettingsService
 }
 
-func NewUserHandler(users store.UserStore) *UserHandler {
-	return &UserHandler{users: users}
+func NewUserHandler(users store.UserStore, settings *service.SettingsService) *UserHandler {
+	return &UserHandler{users: users, settings: settings}
 }
 
 func callerRole(c *gin.Context) model.UserRole {
@@ -212,6 +216,41 @@ type updateMeRequest struct {
 	NotifyEnabled      bool   `json:"notify_enabled"`
 	NotifyEmails       string `json:"notify_emails"`
 	NotifyWecomWebhook string `json:"notify_wecom_webhook"`
+}
+
+// APITestMyEmail 使用管理员配置的全局 SMTP，向当前用户填写的收件地址发送测试邮件
+func (h *UserHandler) APITestMyEmail(c *gin.Context) {
+	var req struct {
+		NotifyEmails string `json:"notify_emails"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"message": "参数错误"})
+		return
+	}
+
+	var recipients []string
+	for _, p := range strings.Split(req.NotifyEmails, ",") {
+		if p = strings.TrimSpace(p); p != "" {
+			recipients = append(recipients, p)
+		}
+	}
+	if len(recipients) == 0 {
+		c.JSON(http.StatusBadRequest, gin.H{"message": "请先填写收件地址"})
+		return
+	}
+
+	host, port, username, password, from, fromName, tls := h.settings.GetSMTPConfig()
+	cfg := notify.ParseSMTPConfig(host, port, username, password, from, fromName, tls)
+	if cfg.Host == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"message": "管理员尚未配置 SMTP，无法发送测试邮件"})
+		return
+	}
+
+	if err := notify.SendTestEmail(cfg, recipients...); err != nil {
+		c.JSON(http.StatusBadGateway, gin.H{"message": "发送失败: " + err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"message": "测试邮件已发送，请检查收件箱"})
 }
 
 func (h *UserHandler) APIUpdateMe(c *gin.Context) {

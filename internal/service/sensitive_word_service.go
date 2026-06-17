@@ -19,13 +19,25 @@ func (s *SensitiveWordService) List() ([]model.SensitiveWord, error) {
 	return s.store.List()
 }
 
-func (s *SensitiveWordService) Create(original, replacement string) (*model.SensitiveWord, error) {
-	w := &model.SensitiveWord{Original: original, Replacement: replacement}
+// ListDetect 返回所有检测类型的敏感词
+func (s *SensitiveWordService) ListDetect() ([]model.SensitiveWord, error) {
+	return s.store.ListByType(model.SensitiveWordTypeDetect)
+}
+
+func normalizeType(t string) string {
+	if t == model.SensitiveWordTypeDetect {
+		return model.SensitiveWordTypeDetect
+	}
+	return model.SensitiveWordTypeReplace
+}
+
+func (s *SensitiveWordService) Create(wordType, original, replacement string) (*model.SensitiveWord, error) {
+	w := &model.SensitiveWord{Type: normalizeType(wordType), Original: original, Replacement: replacement}
 	return w, s.store.Create(w)
 }
 
-func (s *SensitiveWordService) Update(id int64, original, replacement string) (*model.SensitiveWord, error) {
-	w := &model.SensitiveWord{ID: id, Original: original, Replacement: replacement}
+func (s *SensitiveWordService) Update(id int64, wordType, original, replacement string) (*model.SensitiveWord, error) {
+	w := &model.SensitiveWord{ID: id, Type: normalizeType(wordType), Original: original, Replacement: replacement}
 	return w, s.store.Update(w)
 }
 
@@ -33,13 +45,16 @@ func (s *SensitiveWordService) Delete(id int64) error {
 	return s.store.Delete(id)
 }
 
-// Replace 将文本中所有敏感词替换为对应替换词
+// Replace 将文本中所有替换类敏感词替换为对应替换词（检测类不参与）
 func (s *SensitiveWordService) Replace(text string) string {
 	words, err := s.store.List()
 	if err != nil || len(words) == 0 {
 		return text
 	}
 	for _, w := range words {
+		if w.Type == model.SensitiveWordTypeDetect {
+			continue
+		}
 		if w.Original != "" {
 			text = strings.ReplaceAll(text, w.Original, w.Replacement)
 		}
@@ -47,13 +62,16 @@ func (s *SensitiveWordService) Replace(text string) string {
 	return text
 }
 
-// Restore 将文本中所有替换词还原为原始敏感词
+// Restore 将文本中所有替换词还原为原始敏感词（检测类不参与）
 func (s *SensitiveWordService) Restore(text string) string {
 	words, err := s.store.List()
 	if err != nil || len(words) == 0 {
 		return text
 	}
 	for _, w := range words {
+		if w.Type == model.SensitiveWordTypeDetect {
+			continue
+		}
 		if w.Replacement != "" {
 			text = strings.ReplaceAll(text, w.Replacement, w.Original)
 		}

@@ -9,9 +9,13 @@ import (
 	"time"
 
 	"github.com/yuin/goldmark"
+	"github.com/yuin/goldmark/extension"
 	"gopkg.in/gomail.v2"
 	"review-view/internal/model"
 )
+
+// mdRenderer 启用 GFM（表格、删除线、自动链接等），与前端 marked.js 行为对齐
+var mdRenderer = goldmark.New(goldmark.WithExtensions(extension.GFM))
 
 type SMTPConfig struct {
 	Host     string
@@ -81,7 +85,11 @@ func (n *EmailNotifier) Send(task *model.Task, project *model.Project, user *mod
 
 	port := cfg.Port
 	if port == 0 {
-		port = 465
+		if cfg.TLS {
+			port = 465
+		} else {
+			port = 587
+		}
 	}
 	d := gomail.NewDialer(cfg.Host, port, cfg.Username, cfg.Password)
 	d.SSL = cfg.TLS
@@ -147,7 +155,7 @@ func buildEmailSubject(task *model.Task, project *model.Project) string {
 
 func mdToHTML(md string) (string, error) {
 	var buf bytes.Buffer
-	if err := goldmark.Convert([]byte(md), &buf); err != nil {
+	if err := mdRenderer.Convert([]byte(md), &buf); err != nil {
 		return "", err
 	}
 	return buf.String(), nil
@@ -162,6 +170,10 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;max-widt
 pre,code{background:#f6f8fa;border-radius:4px;padding:2px 6px;font-size:0.9em}
 pre{padding:12px;overflow-x:auto}
 h1,h2,h3{border-bottom:1px solid #eaecef;padding-bottom:.3em}
+table{border-collapse:collapse;width:100%%;margin:16px 0;font-size:13px;display:block;overflow-x:auto}
+table th,table td{border:1px solid #d0d7de;padding:6px 12px;text-align:left;vertical-align:top}
+table th{background:#f6f8fa;font-weight:600;white-space:nowrap}
+table tr:nth-child(2n){background:#f6f8fa}
 </style>
 </head><body>%s%s</body></html>`, escapeHTML(title), meta, body)
 }
@@ -192,4 +204,47 @@ func ParseSMTPConfig(host, portStr, username, password, from, fromName, tlsStr s
 		FromName: fromName,
 		TLS:      tlsStr == "true" || tlsStr == "1",
 	}
+}
+
+// SendTestEmail 使用给定配置发送一封测试邮件
+func SendTestEmail(cfg SMTPConfig, to ...string) error {
+	if cfg.Host == "" {
+		return fmt.Errorf("SMTP Host 未配置")
+	}
+	if cfg.From == "" {
+		return fmt.Errorf("发件人地址（From）未配置")
+	}
+	if len(to) == 0 {
+		return fmt.Errorf("收件地址不能为空")
+	}
+
+	m := gomail.NewMessage()
+	if cfg.FromName != "" {
+		m.SetAddressHeader("From", cfg.From, cfg.FromName)
+	} else {
+		m.SetHeader("From", cfg.From)
+	}
+	m.SetHeader("To", to...)
+	subject := "Review View 邮件推送配置确认"
+	m.SetHeader("Subject", subject)
+	body := `<p>您好，</p>
+<p>这是一封来自 Review View 的配置确认邮件。如果您收到本邮件，说明邮件推送功能已正确配置，后续的代码审查结果将通过此通道发送。</p>
+<p>无需回复本邮件。</p>`
+	m.SetBody("text/html", wrapHTML(subject, "", body))
+
+	port := cfg.Port
+	if port == 0 {
+		if cfg.TLS {
+			port = 465
+		} else {
+			port = 587
+		}
+	}
+	d := gomail.NewDialer(cfg.Host, port, cfg.Username, cfg.Password)
+	// TLS=true: SSL/TLS（465）; TLS=false: STARTTLS（587）
+	d.SSL = cfg.TLS
+	if err := d.DialAndSend(m); err != nil {
+		return fmt.Errorf("SMTP %s:%d → %w", cfg.Host, port, err)
+	}
+	return nil
 }

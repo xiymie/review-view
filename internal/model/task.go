@@ -25,6 +25,8 @@ type Task struct {
 	Status              TaskStatus      `gorm:"not null;index"`
 	FromCommit          string
 	ToCommit            string          `gorm:"not null;index"`
+	FromSubject         string // from_commit 的提交说明（区间起点；from 为空时为空）
+	ToSubject           string // to_commit 的提交说明（区间终点）
 	DiffContent         string
 	CommitMessages      string // git log --oneline 格式的 commit 记录
 	Result              string

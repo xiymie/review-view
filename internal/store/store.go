@@ -71,6 +71,7 @@ type SensitiveWordStore interface {
 	Update(*model.SensitiveWord) error
 	Delete(id int64) error
 	List() ([]model.SensitiveWord, error)
+	ListByType(wordType string) ([]model.SensitiveWord, error)
 }
 
 type UserStore interface {

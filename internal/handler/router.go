@@ -88,6 +88,7 @@ func NewRouter(handlers *Handlers) *gin.Engine {
 	// Settings
 	api.GET("/settings", handlers.Settings.APIGet)
 	api.PUT("/settings", handlers.Settings.APIUpdate)
+	api.POST("/settings/test-email", handlers.Settings.APITestEmail)
 
 	// SensitiveWords
 	api.GET("/sensitive-words", handlers.SensitiveWords.APIList)
@@ -98,6 +99,7 @@ func NewRouter(handlers *Handlers) *gin.Engine {
 	// Users - own profile (any authenticated user)
 	api.GET("/users/me", handlers.Users.APIGetMe)
 	api.PUT("/users/me", handlers.Users.APIUpdateMe)
+	api.POST("/users/me/test-email", handlers.Users.APITestMyEmail)
 
 	// Users - admin only
 	adminAPI := api.Group("", AdminRequired())

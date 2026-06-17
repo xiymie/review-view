@@ -8,7 +8,7 @@
 - 侧边栏包含应用名称 + 6 个一级导航入口，当前页高亮（绿色 `#22C55E`）
 - 二级页面通过面包屑导航返回上级，格式：`上级页面名 / 当前页面名`
 
-技术栈：Go Template + 原生 JS + marked.js（客户端 Markdown 渲染）。模板和静态资源通过 `go:embed` 打包。
+技术栈：Vue 3 + Element Plus，构建产物通过 `go:embed` 打包进二进制。
 
 ## 导航结构
 
@@ -143,7 +143,7 @@
 - 信息条：Commit 范围 / Token 消耗（输入 N / 输出 N）/ 创建时间 / 开始时间 / 结束时间
 - 独立日志区域（card）：按时间展示日志列表，每条包含时间戳 / 级别标签（info 蓝色 / warn 黄色 / error 红色）/ 消息，运行中任务通过 SSE 实时追加并自动滚动
 - Tab 切换区域（2 个 tab）：
-  - **Review 结果**（默认）：客户端 marked.js 渲染 Markdown，运行中任务通过 SSE 实时显示流式结果
+  - **Review 结果**（默认）：Markdown 渲染，运行中任务通过 SSE 实时显示流式结果
   - **Diff 内容**：pre 格式化展示
 
 ### 11. 全局设置 `/settings`

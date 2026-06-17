@@ -320,6 +320,15 @@ func (s *Scheduler) ExecuteTask(ctx context.Context, taskID int64) error {
 	finishedAt := time.Now()
 	task.Status = model.TaskStatusCompleted
 	task.Result = result.Content
+
+	// 敏感词检测：扫描已 checkout 的工作区，命中结果前置拼接到报告
+	if hits, configured, scanErr := s.scanSensitiveWords(runCtx, repoDir); scanErr != nil {
+		s.appendLog(task.ID, model.TaskLogLevelError, "敏感词检测失败: "+scanErr.Error())
+	} else if configured {
+		s.appendLog(task.ID, model.TaskLogLevelInfo, fmt.Sprintf("敏感词检测完成，命中 %d 处", len(hits)))
+		task.Result = buildSensitiveReport(hits) + "\n" + task.Result
+	}
+
 	task.InputTokens = result.InputTokens
 	task.OutputTokens = result.OutputTokens
 	task.CacheCreationTokens = result.CacheCreationTokens

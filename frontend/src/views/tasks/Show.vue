@@ -24,6 +24,9 @@
       <el-descriptions :column="3" border class="info-desc">
         <el-descriptions-item label="Commit 范围">
           <span class="mono">{{ commitRange }}</span>
+          <div v-if="task.to_subject || task.from_subject" class="commit-msg-line">
+            <template v-if="task.from_commit">{{ task.from_subject || '—' }} <span class="commit-arrow">→</span> </template>{{ task.to_subject || '—' }}
+          </div>
         </el-descriptions-item>
         <el-descriptions-item label="输入 Token">{{ task.input_tokens ?? '—' }}</el-descriptions-item>
         <el-descriptions-item label="输出 Token">{{ task.output_tokens ?? '—' }}</el-descriptions-item>
@@ -104,6 +107,11 @@
         <template v-else-if="task.status === 'failed' || task.status === 'cancelled'">
           <el-button type="primary" @click="handleRetry">重试</el-button>
         </template>
+        <el-button
+          v-if="task.status === 'completed'"
+          type="primary"
+          @click="handleRescan"
+        >再次扫描</el-button>
         <el-button
           v-if="!['running','pending'].includes(task.status)"
           type="danger"
@@ -378,6 +386,20 @@ const handleRetry = async () => {
   }
 }
 
+const handleRescan = async () => {
+  try {
+    await ElMessageBox.confirm('确认对相同 commit 范围再次发起扫描？', '再次扫描', {
+      confirmButtonText: '确认',
+      cancelButtonText: '取消',
+      type: 'warning',
+    })
+    const { data } = await apiRetryTask(route.params.id)
+    router.push('/tasks/' + data.task_id)
+  } catch (e) {
+    if (e !== 'cancel' && e?.type !== 'cancel') ElMessage.error(e.response?.data?.message || '再次扫描失败')
+  }
+}
+
 const handleDelete = async () => {
   try {
     await ElMessageBox.confirm(`确认删除任务 #${task.value.id}？此操作不可恢复。`, '删除确认', {
@@ -442,6 +464,14 @@ const handleDelete = async () => {
   font-family: monospace; font-size: 12.5px;
   background: #f1f5f9; padding: 2px 7px; border-radius: 5px; color: #475569;
 }
+
+.commit-msg-line {
+  margin-top: 6px;
+  font-size: 12.5px;
+  color: #64748b;
+  line-height: 1.5;
+}
+.commit-msg-line .commit-arrow { color: #94a3b8; }
 
 .log-card { margin-bottom: 24px; }
 

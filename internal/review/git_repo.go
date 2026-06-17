@@ -85,6 +85,21 @@ func (m *RepositoryManager) BuildDiff(ctx context.Context, repoDir, fromCommit, 
 	return m.runner.Run(ctx, repoDir, "git", "diff", fromCommit+".."+toCommit)
 }
 
+// GitGrep 在仓库已跟踪文件中固定字符串匹配 word，返回 "file:line:content" 行。
+// 仅搜索已跟踪文件，天然排除 .git 及 .gitignore 忽略的内容（node_modules/vendor 等）。
+// git grep 无匹配时退出码为 1，此处归一化为「空结果、无错误」。
+func (m *RepositoryManager) GitGrep(ctx context.Context, repoDir, word string) (string, error) {
+	out, err := m.runner.Run(ctx, repoDir, "git", "grep", "-n", "-F", "-e", word, "--", ".")
+	if err != nil {
+		// 无匹配（退出码 1）时输出为空，视为正常
+		if strings.TrimSpace(out) == "" {
+			return "", nil
+		}
+		return out, err
+	}
+	return out, nil
+}
+
 // BuildDiffNameStatus 获取 commit 范围内的变更文件列表（name-status 格式）。
 // fromCommit 为空时使用 git show --name-status 仅展示 toCommit 的变更。
 func (m *RepositoryManager) BuildDiffNameStatus(ctx context.Context, repoDir, fromCommit, toCommit string) (string, error) {
@@ -101,6 +116,18 @@ func (m *RepositoryManager) BuildCommitLog(ctx context.Context, repoDir, fromCom
 		return m.runner.Run(ctx, repoDir, "git", "log", "--oneline", "-1", toCommit)
 	}
 	return m.runner.Run(ctx, repoDir, "git", "log", "--oneline", fromCommit+".."+toCommit)
+}
+
+// CommitSubject 获取单个 commit 的提交说明（subject，即首行）。
+func (m *RepositoryManager) CommitSubject(ctx context.Context, repoDir, commit string) (string, error) {
+	if commit == "" {
+		return "", nil
+	}
+	out, err := m.runner.Run(ctx, repoDir, "git", "log", "--format=%s", "-1", commit)
+	if err != nil {
+		return "", err
+	}
+	return strings.TrimSpace(out), nil
 }
 
 // CommitInfo 表示一条 commit 记录的摘要信息
