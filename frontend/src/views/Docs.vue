@@ -379,10 +379,50 @@
         </div>
       </section>
 
-      <!-- 9 -->
+      <!-- 9 scan -->
       <section :id="sections[8].id" class="section">
         <div class="section-anchor">
           <span class="anchor-tag">09</span>
+          <h2>定时巡检</h2>
+        </div>
+        <p>定时巡检与一次性 Code Review 的区别：<strong>Code Review</strong> 针对特定 commit 范围做深度审查；<strong>定时巡检</strong> 按计划定期扫描仓库所有活跃分支，检测高风险变更并存档报告，适合持续风险监控场景。</p>
+
+        <h3>新建巡检配置</h3>
+        <p>进入左侧「<strong>巡检配置</strong>」菜单，点击「新建巡检」，填写以下字段：</p>
+        <div class="field-table">
+          <div class="ft-row" v-for="f in scanFields" :key="f.name">
+            <div class="ft-key">{{ f.name }}</div>
+            <div class="ft-val">{{ f.desc }}</div>
+          </div>
+        </div>
+
+        <h3>增量扫描机制</h3>
+        <p>每次巡检时，系统对比各分支当前 HEAD 与上次记录的 checkpoint commit：</p>
+        <div class="flow-inline">
+          <div class="fi-step" v-for="(s, i) in scanFlow" :key="i">
+            <div class="fi-box">{{ s }}</div>
+            <div class="fi-arrow" v-if="i < scanFlow.length - 1">→</div>
+          </div>
+        </div>
+
+        <h3>查看巡检结果</h3>
+        <p>在「巡检配置」列表中点击「记录」，右侧抽屉展示该仓库的历次执行记录。每次记录可展开查看各分支的风险评级和 AI 分析报告。从首页「最近动态」时间轴点击巡检条目，会<strong>直接跳转并自动展开对应执行记录</strong>，无需手动查找。</p>
+
+        <div class="callout callout-blue">
+          <div class="callout-icon">⚡</div>
+          <div><strong>实时感知</strong> — 首页右上角的定时刷新选择器（5 秒 / 10 秒 / 30 秒）开启后，仪表盘会自动轮询最新数据，触发巡检后无需手动刷新即可看到任务完成。</div>
+        </div>
+
+        <div class="callout callout-purple" style="margin-top:12px">
+          <div class="callout-icon">📂</div>
+          <div><strong>NAS 报告存档</strong> — 填写 WebDAV 地址和凭据后，每次巡检完成自动将 Markdown 报告上传至群晖 NAS，路径格式：<code>TMMTMM/代码巡检记录/{仓库名}/</code>。可在「设置」中配置报告保留天数，到期自动清理。</div>
+        </div>
+      </section>
+
+      <!-- 10 sensitive -->
+      <section :id="sections[9].id" class="section">
+        <div class="section-anchor">
+          <span class="anchor-tag">10</span>
           <h2>敏感词拦截</h2>
         </div>
         <p>进入「<strong>敏感词管理</strong>」配置需要屏蔽的关键词列表。触发审查时，系统在调用 LLM 之前扫描 diff 内容：</p>
@@ -400,10 +440,10 @@
         </div>
       </section>
 
-      <!-- 10 -->
-      <section :id="sections[9].id" class="section">
+      <!-- 11 settings -->
+      <section :id="sections[10].id" class="section">
         <div class="section-anchor">
-          <span class="anchor-tag">10</span>
+          <span class="anchor-tag">11</span>
           <h2>全局设置</h2>
         </div>
         <p>进入「<strong>设置</strong>」菜单配置系统级参数，对所有项目生效（项目级配置优先级更高）。SMTP 邮件服务配置也在此页面（仅管理员可见）。</p>
@@ -420,10 +460,10 @@
         </div>
       </section>
 
-      <!-- 11 -->
-      <section :id="sections[10].id" class="section last-section">
+      <!-- 12 principle -->
+      <section :id="sections[11].id" class="section last-section">
         <div class="section-anchor">
-          <span class="anchor-tag">11</span>
+          <span class="anchor-tag">12</span>
           <h2>工作原理</h2>
         </div>
 
@@ -505,19 +545,20 @@ const sections = [
   { id: 'trigger',    label: '触发 Code Review' },
   { id: 'result',     label: '查看审核结果' },
   { id: 'notify',     label: '推送通知' },
+  { id: 'scan',       label: '定时巡检' },
   { id: 'sensitive',  label: '敏感词拦截' },
   { id: 'settings',   label: '全局设置' },
   { id: 'principle',  label: '工作原理' },
 ]
 
-const heroChips = ['自托管', 'SQLite', 'Webhook', '多模型', '流式输出', '推送通知']
+const heroChips = ['自托管', 'SQLite', 'Webhook', '多模型', '定时巡检', '流式输出', '推送通知', '自动刷新']
 
 const features = [
   { title: 'Webhook 自动触发', desc: '代码推送即发起审查，零人工介入', icon: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 16.92v3a2 2 0 0 1-2.18 2A19.5 19.5 0 0 1 3.35 3.6a2 2 0 0 1 1.68-2.18h3a2 2 0 0 1 2 1.72c.13.96.36 1.9.7 2.81a2 2 0 0 1-.45 2.11L7.91 9a16 16 0 0 0 6 6z"/></svg>' },
+  { title: '定时巡检', desc: '定期扫描所有分支，自动检测高风险变更，报告上传 NAS', icon: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>' },
   { title: '多模型支持', desc: '7 种平台 API + Claude CLI 双模式', icon: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M12 1v4M12 19v4M4.22 4.22l2.83 2.83M16.95 16.95l2.83 2.83M1 12h4M19 12h4M4.22 19.78l2.83-2.83M16.95 7.05l2.83-2.83"/></svg>' },
   { title: '流式实时展示', desc: '审查结果边生成边展示，SSE 推送', icon: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>' },
-  { title: '敏感词拦截', desc: '扫描 diff，防止敏感数据流出', icon: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>' },
-  { title: '任务调度控制', desc: '并发限制、超时保护、取消重试', icon: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>' },
+  { title: '敏感词拦截', desc: '扫描 diff，防止敏感数据流出至第三方 AI', icon: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>' },
   { title: '私有化部署', desc: '单二进制，数据完全自主，无外部依赖', icon: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="3" width="20" height="14" rx="2" ry="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>' },
 ]
 
@@ -586,11 +627,28 @@ const tabDescs = [
 
 const sensitiveFlow = ['Webhook / 手动触发', '获取 git diff', '扫描敏感词', '命中 → rejected', '未命中 → 调用 LLM', '结果写入 DB']
 
+const scanFlow = ['定时触发（按 HH:MM）', '遍历所有分支', '对比 checkpoint', 'HEAD 无变化 → 跳过', '有新 commit → 分析', '更新 checkpoint', '上传报告 NAS']
+
+const scanFields = [
+  { name: '名称',       desc: '便于识别的巡检配置名称，如「后端主仓库巡检」。' },
+  { name: '仓库地址',   desc: 'HTTPS 格式 Git 地址，如 https://github.com/org/repo.git。' },
+  { name: '仓库凭据',   desc: '私有仓库选择对应凭据；公开仓库留空。' },
+  { name: '模型配置',   desc: '选择用于分析的 AI 模型配置。' },
+  { name: '巡检时间',   desc: 'HH:MM 格式，如 09:00。留空则使用全局默认时间。' },
+  { name: '自定义提示词', desc: '覆盖全局巡检提示词（非追加），不填则继承全局默认值。' },
+  { name: 'NAS 配置',  desc: 'WebDAV 地址、用户名、密码、子目录。留空则使用全局 NAS 配置。' },
+  { name: '状态',       desc: '启用 / 停用。停用后定时不执行，但仍可手动触发。' },
+]
+
 const globalSettings = [
-  { name: '最大并发任务数', default: '3',       desc: '全局同时执行的最大审查任务数，超出后按项目溢出策略处理。' },
-  { name: '全局溢出策略',   default: 'queue',   desc: '项目未配置溢出策略时的默认行为，可被项目级配置覆盖。' },
-  { name: '任务超时时间',   default: '30 分钟', desc: '单次审查最长执行时间，项目级超时配置优先级更高。' },
-  { name: '仓库根目录',     default: './repos', desc: '克隆仓库的本地存储路径，修改后已有仓库不会自动迁移。' },
+  { name: '最大并发任务数',   default: '3',       desc: '全局同时执行的最大审查任务数，超出后按项目溢出策略处理。' },
+  { name: '全局溢出策略',     default: 'queue',   desc: '项目未配置溢出策略时的默认行为，可被项目级配置覆盖。' },
+  { name: '任务超时时间',     default: '30 分钟', desc: '单次审查最长执行时间，项目级超时配置优先级更高。' },
+  { name: '仓库根目录',       default: './repos', desc: '克隆仓库的本地存储路径，修改后已有仓库不会自动迁移。' },
+  { name: '巡检默认时间',     default: '09:00',   desc: '巡检配置未单独设置时间时使用的全局默认触发时间（HH:MM）。' },
+  { name: '巡检默认提示词',   default: '内置',    desc: '所有巡检仓库共用的默认 LLM 提示词，单仓库可覆盖（非追加）。' },
+  { name: 'NAS WebDAV 地址', default: '空',       desc: '报告上传目标，如 http://192.168.1.57:5005。单仓库可覆盖。' },
+  { name: '报告保留天数',     default: '30',      desc: '超过保留天数的旧报告在下次巡检后自动从 NAS 删除，0 表示永久保留。' },
 ]
 
 const pipeline = [

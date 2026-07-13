@@ -20,6 +20,7 @@ type Handlers struct {
 	Auth           *AuthHandler
 	SensitiveWords *SensitiveWordHandler
 	Users          *UserHandler
+	Scan           *ScanHandler
 }
 
 func NewRouter(handlers *Handlers) *gin.Engine {
@@ -108,6 +109,19 @@ func NewRouter(handlers *Handlers) *gin.Engine {
 	adminAPI.GET("/users/:id", handlers.Users.APIGet)
 	adminAPI.PUT("/users/:id", handlers.Users.APIUpdate)
 	adminAPI.DELETE("/users/:id", handlers.Users.APIDelete)
+
+	// Scan Schedules - admin only
+	adminAPI.GET("/scan-schedules", handlers.Scan.APIList)
+	adminAPI.POST("/scan-schedules", handlers.Scan.APICreate)
+	adminAPI.GET("/scan-schedules/:id", handlers.Scan.APIGet)
+	adminAPI.PUT("/scan-schedules/:id", handlers.Scan.APIUpdate)
+	adminAPI.DELETE("/scan-schedules/:id", handlers.Scan.APIDelete)
+	adminAPI.GET("/scan-schedules/:id/jobs", handlers.Scan.APIListJobs)
+	adminAPI.POST("/scan-schedules/:id/trigger", handlers.Scan.APITrigger)
+	adminAPI.GET("/scan-jobs/:id", handlers.Scan.APIGetJob)
+	adminAPI.POST("/scan/test-nas", handlers.Scan.APITestNas)
+	adminAPI.GET("/scan/models", handlers.Scan.APIModels)
+	adminAPI.GET("/scan/credentials", handlers.Scan.APICredentials)
 
 	router.POST("/webhook/:projectId", handlers.Webhook.Trigger)
 

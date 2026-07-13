@@ -17,6 +17,8 @@ type Stores struct {
 	Credentials    *RepoCredentialStore
 	SensitiveWords *SensitiveWordStore
 	Users          *UserStore
+	ScanSchedules  *ScanScheduleStore
+	ScanJobs       *ScanJobStore
 }
 
 func Open(dsn string) (*gorm.DB, error) {
@@ -26,7 +28,7 @@ func Open(dsn string) (*gorm.DB, error) {
 	if err != nil {
 		return nil, err
 	}
-	if err := db.AutoMigrate(&model.Project{}, &model.ModelConfig{}, &model.Task{}, &model.TaskLog{}, &model.GlobalConfig{}, &model.RepoCredential{}, &model.SensitiveWord{}, &model.User{}); err != nil {
+	if err := db.AutoMigrate(&model.Project{}, &model.ModelConfig{}, &model.Task{}, &model.TaskLog{}, &model.GlobalConfig{}, &model.RepoCredential{}, &model.SensitiveWord{}, &model.User{}, &model.ScanSchedule{}, &model.ScanJob{}, &model.ScanBranchResult{}); err != nil {
 		return nil, err
 	}
 	return db, nil
@@ -41,6 +43,8 @@ func New(db *gorm.DB) Stores {
 		Credentials:    &RepoCredentialStore{db: db},
 		SensitiveWords: &SensitiveWordStore{db: db},
 		Users:          &UserStore{db: db},
+		ScanSchedules:  &ScanScheduleStore{db: db},
+		ScanJobs:       &ScanJobStore{db: db},
 	}
 }
 

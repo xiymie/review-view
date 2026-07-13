@@ -8,21 +8,35 @@ import (
 )
 
 type Settings struct {
-	MaxConcurrentTasks       int
-	OverflowStrategy         model.OverflowStrategy
-	TaskTimeout              int
-	RepoBaseDir              string
-	ScheduledScanUnchanged   bool
-	ManualScanUnchanged      bool
+	MaxConcurrentTasks     int
+	OverflowStrategy       model.OverflowStrategy
+	TaskTimeout            int
+	RepoBaseDir            string
+	ScheduledScanUnchanged bool
+	ManualScanUnchanged    bool
+	// 巡检全局配置
+	ScanDefaultTime    string
+	ScanDefaultPrompt  string
+	ScanNasURL         string
+	ScanNasUsername    string
+	ScanNasPassword    string
+	ScanRetainDays     int // 0=永久保留
 }
 
 type SettingsInput struct {
-	MaxConcurrentTasks       int
-	OverflowStrategy         model.OverflowStrategy
-	TaskTimeout              int
-	RepoBaseDir              string
-	ScheduledScanUnchanged   bool
-	ManualScanUnchanged      bool
+	MaxConcurrentTasks     int
+	OverflowStrategy       model.OverflowStrategy
+	TaskTimeout            int
+	RepoBaseDir            string
+	ScheduledScanUnchanged bool
+	ManualScanUnchanged    bool
+	// 巡检全局配置
+	ScanDefaultTime   string
+	ScanDefaultPrompt string
+	ScanNasURL        string
+	ScanNasUsername   string
+	ScanNasPassword   string
+	ScanRetainDays    int
 }
 
 type SettingsService struct {
@@ -69,6 +83,20 @@ func (s *SettingsService) Get() (*Settings, error) {
 			settings.ScheduledScanUnchanged = item.Value == "true"
 		case model.GlobalConfigKeyManualScanUnchanged:
 			settings.ManualScanUnchanged = item.Value == "true"
+		case model.GlobalConfigKeyScanTime:
+			settings.ScanDefaultTime = item.Value
+		case model.GlobalConfigKeyScanPrompt:
+			settings.ScanDefaultPrompt = item.Value
+		case model.GlobalConfigKeyScanNasURL:
+			settings.ScanNasURL = item.Value
+		case model.GlobalConfigKeyScanNasUsername:
+			settings.ScanNasUsername = item.Value
+		case model.GlobalConfigKeyScanNasPassword:
+			settings.ScanNasPassword = item.Value
+		case model.GlobalConfigKeyScanRetainDays:
+			if v, err := strconv.Atoi(item.Value); err == nil {
+				settings.ScanRetainDays = v
+			}
 		}
 	}
 	return settings, nil
@@ -90,7 +118,30 @@ func (s *SettingsService) Update(input SettingsInput) error {
 	if err := s.configs.Set(model.GlobalConfigKeyScheduledScanUnchanged, strconv.FormatBool(input.ScheduledScanUnchanged)); err != nil {
 		return err
 	}
-	return s.configs.Set(model.GlobalConfigKeyManualScanUnchanged, strconv.FormatBool(input.ManualScanUnchanged))
+	if err := s.configs.Set(model.GlobalConfigKeyManualScanUnchanged, strconv.FormatBool(input.ManualScanUnchanged)); err != nil {
+		return err
+	}
+	if err := s.configs.Set(model.GlobalConfigKeyScanTime, input.ScanDefaultTime); err != nil {
+		return err
+	}
+	if err := s.configs.Set(model.GlobalConfigKeyScanPrompt, input.ScanDefaultPrompt); err != nil {
+		return err
+	}
+	if err := s.configs.Set(model.GlobalConfigKeyScanNasURL, input.ScanNasURL); err != nil {
+		return err
+	}
+	if err := s.configs.Set(model.GlobalConfigKeyScanNasUsername, input.ScanNasUsername); err != nil {
+		return err
+	}
+	if input.ScanNasPassword != "" {
+		if err := s.configs.Set(model.GlobalConfigKeyScanNasPassword, input.ScanNasPassword); err != nil {
+			return err
+		}
+	}
+	if err := s.configs.Set(model.GlobalConfigKeyScanRetainDays, strconv.Itoa(input.ScanRetainDays)); err != nil {
+		return err
+	}
+	return nil
 }
 
 func (s *SettingsService) GetRaw(key string) (string, error) {

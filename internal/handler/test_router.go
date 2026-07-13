@@ -47,7 +47,7 @@ func NewTestRouter(t *testing.T) *gin.Engine {
 	projectService := service.NewProjectService(stores.Projects, stores.ModelConfigs, stores.Tasks, repoManager, stores.Credentials)
 	modelService := service.NewModelConfigService(stores.ModelConfigs)
 	settingsService := service.NewSettingsService(stores.GlobalConfigs)
-	dashboardService := service.NewDashboardService(stores.Projects, stores.Tasks)
+	dashboardService := service.NewDashboardService(stores.Projects, stores.Tasks, stores.ModelConfigs, stores.Credentials, stores.ScanSchedules, stores.ScanJobs, stores.Users, stores.SensitiveWords)
 	credentialService := service.NewRepoCredentialService(stores.Credentials, stores.Projects)
 	taskService := service.NewTaskService(stores.Projects, stores.ModelConfigs, stores.Tasks, repoManager, stores.Credentials, nil)
 	scheduler := service.NewScheduler(stores.Projects, stores.ModelConfigs, stores.Tasks, stores.GlobalConfigs, repoManager, stores.Credentials, nil, service.NewTaskCache(stores.Tasks), 1, 5*time.Second)

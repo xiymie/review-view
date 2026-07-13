@@ -74,6 +74,25 @@ type SensitiveWordStore interface {
 	ListByType(wordType string) ([]model.SensitiveWord, error)
 }
 
+type ScanScheduleStore interface {
+	Create(*model.ScanSchedule) error
+	Update(*model.ScanSchedule) error
+	Delete(id int64) error
+	GetByID(id int64) (*model.ScanSchedule, error)
+	List() ([]model.ScanSchedule, error)
+	ListEnabled() ([]*model.ScanSchedule, error)
+}
+
+type ScanJobStore interface {
+	Create(*model.ScanJob) error
+	Update(*model.ScanJob) error
+	GetByID(id int64) (*model.ScanJob, error)
+	ListBySchedule(scheduleID int64, limit int) ([]model.ScanJob, error)
+	ListBranchResults(jobID int64) ([]model.ScanBranchResult, error)
+	CreateBranchResult(*model.ScanBranchResult) error
+	ListJobsOlderThan(scheduleID int64, before time.Time) ([]model.ScanJob, error)
+}
+
 type UserStore interface {
 	Create(*model.User) error
 	Update(*model.User) error

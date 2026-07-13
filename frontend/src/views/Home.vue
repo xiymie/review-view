@@ -1,343 +1,547 @@
 <template>
-  <div class="page-wrap">
-    <!-- 渐变欢迎横幅 -->
-    <div class="hero-banner">
-      <div class="hero-text">
-        <h1 class="hero-title">仪表盘</h1>
-        <p class="hero-sub">{{ date }} · 欢迎回来，<strong>{{ username }}</strong></p>
+  <div class="dashboard">
+
+    <!-- 欢迎横幅 -->
+    <div class="hero">
+      <div class="hero-left">
+        <div class="greeting">{{ greeting }}，<span class="username">{{ username }}</span></div>
+        <div class="hero-date">{{ dateLabel }} · 代码审核平台</div>
       </div>
-      <div class="hero-deco">
-        <div class="deco-circle c1"></div>
-        <div class="deco-circle c2"></div>
-        <div class="deco-circle c3"></div>
+      <div class="hero-right">
+          <div class="hero-right-col">
+            <div class="hero-badge" v-if="stats.running_count > 0">
+              <span class="badge-dot blink"></span>
+              {{ stats.running_count }} 个任务运行中
+            </div>
+            <div class="hero-badge hero-badge--idle" v-else>
+              <span class="badge-dot idle"></span>
+              系统空闲
+            </div>
+            <!-- 定时刷新选择器 -->
+            <div class="refresh-selector">
+              <el-icon class="refresh-icon" :class="{ spinning: autoRefreshInterval > 0 }"><Refresh /></el-icon>
+              <el-select
+                v-model="autoRefreshInterval"
+                size="small"
+                class="refresh-select"
+                @change="onRefreshChange"
+              >
+                <el-option label="不自动刷新" :value="0" />
+                <el-option label="每 5 秒" :value="5" />
+                <el-option label="每 10 秒" :value="10" />
+                <el-option label="每 30 秒" :value="30" />
+              </el-select>
+            </div>
+          </div>
+      </div>
+      <div class="hero-bg">
+        <div class="hb hb1"></div>
+        <div class="hb hb2"></div>
+        <div class="hb hb3"></div>
       </div>
     </div>
 
-    <!-- 统计卡片 -->
-    <div class="stat-grid" v-loading="loading">
+    <!-- 状态总览条 -->
+    <div class="stat-bar" v-loading="loading">
       <div
-        class="stat-card"
-        v-for="(c, i) in statCards"
-        :key="c.label"
-        :style="{ '--card-color': c.color, '--card-bg': c.bg, '--delay': `${i * 80}ms` }"
-        :class="{ 'card-in': mounted }"
+        v-for="(s, i) in statItems"
+        :key="s.label"
+        class="stat-item"
+        :class="{ clickable: s.route }"
+        :style="{ '--c': s.color }"
+        @click="s.route && $router.push(s.route)"
       >
-        <div class="stat-icon-wrap">
-          <el-icon :size="20"><component :is="c.icon" /></el-icon>
+        <div class="stat-accent"></div>
+        <div class="stat-body">
+          <div class="stat-num">{{ s.value }}</div>
+          <div class="stat-label">{{ s.label }}</div>
         </div>
-        <div class="stat-info">
-          <div class="stat-value">{{ displayValues[i] }}</div>
-          <div class="stat-label">{{ c.label }}</div>
-        </div>
-        <div class="stat-glow"></div>
+        <el-icon class="stat-icon"><component :is="s.icon" /></el-icon>
       </div>
     </div>
 
-    <!-- 最近任务 -->
-    <div class="section-card" :class="{ 'card-in': mounted }" style="--delay: 320ms">
-      <div class="section-header">
-        <div class="section-title-wrap">
-          <span class="section-dot"></span>
-          <span class="section-title">最近任务</span>
+    <!-- 主内容区 -->
+    <div class="main-grid">
+
+      <!-- 左：动态时间轴 -->
+      <div class="panel timeline-panel">
+        <div class="panel-head">
+          <span class="panel-title">最近动态</span>
+          <span class="panel-sub">过去 7 天</span>
         </div>
-        <el-button link type="primary" size="small" @click="$router.push('/tasks')">查看全部 →</el-button>
+        <div class="timeline" v-loading="loading">
+          <div v-if="activities.length === 0" class="empty">暂无动态</div>
+          <div
+            v-for="act in activities"
+            :key="act.kind + act.id"
+            class="tl-item"
+            :class="{ 'tl-clickable': true }"
+            @click="goActivity(act)"
+          >
+            <div class="tl-line-wrap">
+              <div class="tl-dot" :class="`tl-dot--${act.kind === 'scan' ? 'scan' : act.status}`"></div>
+              <div class="tl-line"></div>
+            </div>
+            <div class="tl-content">
+              <div class="tl-top">
+                <span class="tl-kind" :class="`kind--${act.kind}`">
+                  {{ act.kind === 'scan' ? '巡检' : 'Review' }}
+                </span>
+                <span class="tl-title">{{ act.title }}</span>
+                <span
+                  v-if="act.kind === 'scan' && act.has_risk"
+                  class="tl-risk"
+                >⚠ {{ act.risk_count }} 高风险</span>
+                <span class="tl-status" :class="`sts--${act.status}`">{{ statusLabel(act.status) }}</span>
+              </div>
+              <div class="tl-bottom">
+                <code class="tl-sub">{{ act.sub_title }}</code>
+                <span class="tl-time">{{ act.time_ago }}</span>
+              </div>
+            </div>
+          </div>
+        </div>
       </div>
-      <el-table :data="recentTasks" v-loading="loading" size="small">
-        <el-table-column label="项目" min-width="120">
-          <template #default="{ row }">
-            <span class="link-text" @click="$router.push(`/projects/${row.project_id}`)">{{ row.project_name }}</span>
-          </template>
-        </el-table-column>
-        <el-table-column v-if="isAdmin" label="所属用户" width="96">
-          <template #default="{ row }">
-            <span class="owner-tag">{{ row.owner_username || '—' }}</span>
-          </template>
-        </el-table-column>
-        <el-table-column label="Commit 范围" min-width="150">
-          <template #default="{ row }">
-            <code class="code-tag">{{ commitRange(row) }}</code>
-          </template>
-        </el-table-column>
-        <el-table-column label="状态" width="96">
-          <template #default="{ row }">
-            <span class="status-pill" :class="`pill-${row.status}`">{{ statusLabel(row.status) }}</span>
-          </template>
-        </el-table-column>
-        <el-table-column label="触发" prop="triggered_by" width="80">
-          <template #default="{ row }">
-            <span class="trigger-tag">{{ row.triggered_by }}</span>
-          </template>
-        </el-table-column>
-        <el-table-column label="时间" prop="created_at" min-width="148" />
-        <el-table-column label="" width="72">
-          <template #default="{ row }">
-            <el-button link type="primary" size="small" @click="$router.push(`/tasks/${row.id}`)">查看</el-button>
-          </template>
-        </el-table-column>
-      </el-table>
-      <div v-if="!loading && recentTasks.length === 0" class="empty-tip">暂无任务记录</div>
+
+      <!-- 右侧两块 -->
+      <div class="right-col">
+
+        <!-- 系统资产 -->
+        <div class="panel asset-panel">
+          <div class="panel-head">
+            <span class="panel-title">系统资产</span>
+          </div>
+          <div class="asset-grid">
+            <div class="asset-item" @click="$router.push('/models')" style="--ac:#6366f1">
+              <el-icon class="asset-icon"><Cpu /></el-icon>
+              <div class="asset-num">{{ stats.model_count }}</div>
+              <div class="asset-label">模型配置</div>
+            </div>
+            <div class="asset-item" @click="$router.push('/credentials')" style="--ac:#0891b2">
+              <el-icon class="asset-icon"><Key /></el-icon>
+              <div class="asset-num">{{ stats.credential_count }}</div>
+              <div class="asset-label">仓库凭据</div>
+            </div>
+            <div class="asset-item" @click="$router.push('/scan')" style="--ac:#7c3aed">
+              <el-icon class="asset-icon"><Search /></el-icon>
+              <div class="asset-num">{{ stats.scan_enabled_count }}</div>
+              <div class="asset-label">巡检启用</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- 7日热力图 -->
+        <div class="panel heatmap-panel">
+          <div class="panel-head">
+            <span class="panel-title">本周任务热力</span>
+            <span class="panel-sub">近 7 天</span>
+          </div>
+          <div class="heatmap">
+            <div
+              v-for="day in heatmap"
+              :key="day.date"
+              class="hm-day"
+              :class="heatLevel(day.completed)"
+              :title="`${day.date}  完成 ${day.completed}  失败 ${day.failed}`"
+            >
+              <div class="hm-bar">
+                <div
+                  class="hm-completed"
+                  :style="{ height: barHeight(day.completed) + '%' }"
+                ></div>
+                <div
+                  class="hm-failed"
+                  :style="{ height: barHeight(day.failed) + '%', marginTop: '2px' }"
+                ></div>
+              </div>
+              <div class="hm-date">{{ shortDate(day.date) }}</div>
+              <div class="hm-count" v-if="day.completed + day.failed > 0">
+                {{ day.completed + day.failed }}
+              </div>
+            </div>
+          </div>
+          <div class="hm-legend">
+            <span class="leg-dot leg-completed"></span><span>完成</span>
+            <span class="leg-dot leg-failed"></span><span>失败</span>
+          </div>
+        </div>
+
+      </div>
     </div>
+
   </div>
 </template>
 
 <script setup>
 import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
+import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
-import { Folder, Loading, Check, WarningFilled } from '@element-plus/icons-vue'
+import {
+  FolderOpened, Loading, CircleCheck, CircleClose,
+  WarningFilled, Cpu, Key, Search, Refresh, User,
+} from '@element-plus/icons-vue'
 import { getDashboard } from '../api/dashboard'
 
+const router = useRouter()
 const loading = ref(false)
-const date = ref('')
-const mounted = ref(false)
 const username = localStorage.getItem('username') || 'admin'
-const stats = ref({ project_count: 0, running_count: 0, today_completed_count: 0, failed_count: 0 })
-const recentTasks = ref([])
-const displayValues = ref([0, 0, 0, 0])
+const dateLabel = ref('')
+const stats = ref({
+  project_count: 0, running_count: 0,
+  today_completed_count: 0, failed_count: 0,
+  week_failed_count: 0, week_risk_count: 0,
+  model_count: 0, credential_count: 0, scan_enabled_count: 0,
+  user_count: 0, sensitive_word_count: 0, scan_total_count: 0,
+})
+const activities = ref([])
+const heatmap = ref([])
 
-const isAdmin = computed(() => {
-  const role = localStorage.getItem('role') || ''
-  return role === 'admin' || role === 'super_admin'
+const greeting = computed(() => {
+  const h = new Date().getHours()
+  if (h < 6)  return '夜深了'
+  if (h < 12) return '早上好'
+  if (h < 14) return '中午好'
+  if (h < 18) return '下午好'
+  return '晚上好'
 })
 
-const statCards = computed(() => [
-  { label: '项目总数',  value: stats.value.project_count,        icon: Folder,        color: '#2563eb', bg: 'linear-gradient(135deg,#eff6ff,#dbeafe)' },
-  { label: '运行中',   value: stats.value.running_count,         icon: Loading,       color: '#d97706', bg: 'linear-gradient(135deg,#fffbeb,#fef3c7)' },
-  { label: '今日完成', value: stats.value.today_completed_count, icon: Check,         color: '#059669', bg: 'linear-gradient(135deg,#ecfdf5,#d1fae5)' },
-  { label: '失败',     value: stats.value.failed_count,          icon: WarningFilled, color: '#dc2626', bg: 'linear-gradient(135deg,#fef2f2,#fee2e2)' },
+const statItems = computed(() => [
+  { label: '扫描项目总数', value: stats.value.project_count,       color: '#2563eb', icon: FolderOpened,  route: '/projects' },
+  { label: '巡检项目总数', value: stats.value.scan_total_count,    color: '#7c3aed', icon: Search,        route: '/scan' },
+  { label: '用户数量',     value: stats.value.user_count,          color: '#0891b2', icon: User,          route: '/users' },
+  { label: '敏感词数量',   value: stats.value.sensitive_word_count, color: '#d97706', icon: WarningFilled, route: '/sensitive-words' },
+  { label: '高风险分支',   value: stats.value.week_risk_count,      color: '#dc2626', icon: CircleClose,   route: '/scan' },
 ])
 
-// 数字滚动动效
-function animateCount(targets) {
-  const duration = 600
-  const start = Date.now()
-  const from = [...displayValues.value]
-  const tick = () => {
-    const elapsed = Date.now() - start
-    const progress = Math.min(elapsed / duration, 1)
-    const ease = 1 - Math.pow(1 - progress, 3)
-    displayValues.value = targets.map((t, i) => Math.round(from[i] + (t - from[i]) * ease))
-    if (progress < 1) requestAnimationFrame(tick)
-  }
-  requestAnimationFrame(tick)
+const maxHeat = computed(() => Math.max(...heatmap.value.map(d => d.completed + d.failed), 1))
+
+function heatLevel(n) {
+  if (n === 0) return 'lv0'
+  if (n <= 2)  return 'lv1'
+  if (n <= 5)  return 'lv2'
+  return 'lv3'
 }
 
-const statusLabel = (s) => ({ completed: '已完成', running: '运行中', pending: '等待中', failed: '失败', cancelled: '已取消' }[s] || s)
-const commitRange = (row) => {
-  if (row.from_commit) return `${row.from_commit.slice(0,7)}..${row.to_commit.slice(0,7)}`
-  return row.to_commit?.slice(0, 7)
+function barHeight(n) {
+  return Math.round((n / maxHeat.value) * 100)
 }
 
+function shortDate(s) {
+  const d = new Date(s)
+  return `${d.getMonth()+1}/${d.getDate()}`
+}
+
+const statusLabel = (s) => ({
+  completed: '完成', running: '运行中', pending: '等待',
+  failed: '失败', cancelled: '取消',
+}[s] || s)
+
+function goActivity(act) {
+  if (act.kind === 'task')  router.push(`/tasks/${act.id}`)
+  if (act.kind === 'scan')  router.push(`/scan?job_id=${act.id}`)
+}
+
+// ---- 自动刷新 ----
+const autoRefreshInterval = ref(0)
 let autoRefreshTimer = null
-const hasRunning = computed(() => recentTasks.value.some(t => t.status === 'running' || t.status === 'pending'))
-watch(hasRunning, (active) => {
-  if (active && !autoRefreshTimer) {
-    autoRefreshTimer = setInterval(fetchData, 5000)
-  } else if (!active && autoRefreshTimer) {
-    clearInterval(autoRefreshTimer)
-    autoRefreshTimer = null
+
+function onRefreshChange(val) {
+  if (autoRefreshTimer) { clearInterval(autoRefreshTimer); autoRefreshTimer = null }
+  if (val > 0) {
+    autoRefreshTimer = setInterval(fetchData, val * 1000)
   }
+}
+
+let timer = null
+const hasRunning = computed(() => stats.value.running_count > 0)
+watch(hasRunning, active => {
+  if (active && !timer) timer = setInterval(fetchData, 6000)
+  else if (!active && timer) { clearInterval(timer); timer = null }
 })
 
-const fetchData = async () => {
+async function fetchData() {
   loading.value = true
   try {
     const { data } = await getDashboard()
-    stats.value = data.stats
-    recentTasks.value = data.recent_tasks
-    date.value = data.date
-    animateCount([data.stats.project_count, data.stats.running_count, data.stats.today_completed_count, data.stats.failed_count])
-  } catch { ElMessage.error('数据加载失败') }
-  finally { loading.value = false }
+    stats.value    = data.stats
+    activities.value = data.activities || []
+    heatmap.value  = data.heatmap || []
+    dateLabel.value = data.date
+  } catch {
+    ElMessage.error('数据加载失败')
+  } finally {
+    loading.value = false
+  }
 }
 
-onMounted(async () => {
-  await fetchData()
-  setTimeout(() => { mounted.value = true }, 50)
-})
-onUnmounted(() => clearInterval(autoRefreshTimer))
+onMounted(fetchData)
+onUnmounted(() => { clearInterval(timer); clearInterval(autoRefreshTimer) })
 </script>
 
 <style scoped>
-.page-wrap { padding: 0; }
+.dashboard { min-height: 100vh; background: #f1f5f9; }
 
 /* ── 欢迎横幅 ── */
-.hero-banner {
+.hero {
   position: relative;
-  background: linear-gradient(135deg, #1e3a8a 0%, #2563eb 45%, #7c3aed 100%);
-  padding: 28px 36px 24px;
   overflow: hidden;
+  background: linear-gradient(135deg, #0f172a 0%, #1e3a8a 50%, #4c1d95 100%);
+  padding: 28px 40px;
   display: flex;
   align-items: center;
   justify-content: space-between;
 }
-
-.hero-text { position: relative; z-index: 2; }
-.hero-title {
-  margin: 0 0 4px;
-  font-size: 24px;
-  font-weight: 700;
-  color: #fff;
-  letter-spacing: -0.5px;
-}
-.hero-sub { margin: 0; font-size: 14px; color: rgba(255,255,255,0.75); }
-.hero-sub strong { color: #fff; }
-
-/* 装饰圆 */
-.hero-deco { position: absolute; right: 0; top: 0; bottom: 0; width: 320px; }
-.deco-circle {
+.hero-bg { position: absolute; inset: 0; pointer-events: none; }
+.hb {
   position: absolute;
   border-radius: 50%;
-  opacity: 0.12;
+  background: rgba(255,255,255,0.06);
+}
+.hb1 { width: 320px; height: 320px; right: -80px; top: -120px; }
+.hb2 { width: 180px; height: 180px; right: 120px; bottom: -80px; }
+.hb3 { width: 90px;  height: 90px;  right: 280px; top: 10px; background: rgba(255,255,255,0.04); }
+
+.greeting {
+  font-size: 22px; font-weight: 700; color: #fff; margin-bottom: 6px;
+  position: relative; z-index: 1;
+}
+.username { color: #93c5fd; }
+.hero-date { font-size: 13px; color: rgba(255,255,255,0.55); position: relative; z-index: 1; }
+
+.hero-right { position: relative; z-index: 1; }
+.hero-right-col { display: flex; flex-direction: column; align-items: flex-end; gap: 10px; }
+.hero-badge {
+  display: flex; align-items: center; gap: 8px;
+  background: rgba(255,255,255,0.12);
+  border: 1px solid rgba(255,255,255,0.2);
+  border-radius: 20px;
+  padding: 6px 14px;
+  font-size: 13px; color: #fff;
+}
+.hero-badge--idle { opacity: 0.6; }
+.badge-dot {
+  width: 8px; height: 8px; border-radius: 50%;
+}
+.badge-dot.blink { background: #34d399; animation: pulse 1.5s infinite; }
+.badge-dot.idle  { background: #94a3b8; }
+@keyframes pulse {
+  0%,100% { opacity: 1; transform: scale(1); }
+  50%      { opacity: 0.5; transform: scale(1.3); }
+}
+
+.refresh-selector {
+  display: flex; align-items: center; gap: 6px;
+  background: rgba(255,255,255,0.1);
+  border: 1px solid rgba(255,255,255,0.2);
+  border-radius: 20px;
+  padding: 4px 10px 4px 12px;
+}
+.refresh-icon { color: rgba(255,255,255,0.75); font-size: 14px; flex-shrink: 0; }
+.refresh-icon.spinning { animation: spin 2s linear infinite; }
+@keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+.refresh-select { width: 100px; }
+.refresh-selector :deep(.el-select .el-input__wrapper) {
+  background: transparent !important;
+  box-shadow: none !important;
+  padding: 0 4px;
+}
+.refresh-selector :deep(.el-select .el-input__inner) {
+  color: rgba(255,255,255,0.85) !important;
+  font-size: 12px;
+}
+.refresh-selector :deep(.el-select .el-input__suffix) { color: rgba(255,255,255,0.6); }
+
+/* ── 状态总览条 ── */
+.stat-bar {
+  display: flex;
+  gap: 0;
+  margin: 20px 40px;
   background: #fff;
-}
-.c1 { width: 200px; height: 200px; right: -40px; top: -60px; }
-.c2 { width: 140px; height: 140px; right: 80px; bottom: -50px; }
-.c3 { width: 80px;  height: 80px;  right: 180px; top: 10px; opacity: 0.08; }
-
-/* 内容区 padding */
-.stat-grid,
-.section-card { margin: 0 36px; }
-
-/* ── 统计卡片 ── */
-.stat-grid {
-  display: grid;
-  grid-template-columns: repeat(4, 1fr);
-  gap: 14px;
-  margin-top: 24px;
-  margin-bottom: 20px;
-}
-
-/* 卡片入场动画 */
-.stat-card, .section-card {
-  opacity: 0;
-  animation: none;
-}
-.card-in.stat-card { animation: slide-in 0.45s ease forwards; animation-delay: var(--delay, 0ms); }
-.card-in.section-card { animation: slide-in 0.45s ease forwards; animation-delay: var(--delay, 0ms); }
-
-@keyframes slide-in {
-  from { opacity: 0; transform: translateY(12px); }
-  to   { opacity: 1; transform: translateY(0); }
-}
-
-.stat-card {
-  background: var(--card-bg);
-  border: 1px solid rgba(255,255,255,0.6);
-  border-radius: 12px;
-  padding: 20px;
-  display: flex;
-  align-items: center;
-  gap: 16px;
-  position: relative;
+  border-radius: 14px;
+  border: 1px solid #e2e8f0;
   overflow: hidden;
-  cursor: default;
-  transition: box-shadow 0.2s, transform 0.2s;
+  box-shadow: 0 1px 4px rgba(0,0,0,0.05);
 }
-
-.stat-card:hover {
-  box-shadow: 0 4px 20px rgba(0,0,0,0.08);
-  transform: translateY(-2px);
-}
-
-.stat-glow {
-  position: absolute;
-  inset: 0;
-  background: linear-gradient(135deg, transparent 60%, rgba(255,255,255,0.3));
-  pointer-events: none;
-}
-
-.stat-icon-wrap {
-  width: 46px; height: 46px;
-  border-radius: 11px;
-  background: white;
-  box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+.stat-item {
+  flex: 1;
   display: flex;
   align-items: center;
-  justify-content: center;
-  flex-shrink: 0;
-  color: var(--card-color);
+  gap: 12px;
+  padding: 18px 20px;
+  border-right: 1px solid #f1f5f9;
+  position: relative;
+  transition: background 0.15s;
 }
+.stat-item:last-child { border-right: none; }
+.stat-item.clickable { cursor: pointer; }
+.stat-item.clickable:hover { background: #f8fafc; }
 
-.stat-value {
-  font-size: 30px;
-  font-weight: 800;
-  color: var(--card-color);
-  line-height: 1;
-  margin-bottom: 4px;
+.stat-accent {
+  position: absolute; left: 0; top: 20%; bottom: 20%;
+  width: 3px; border-radius: 0 3px 3px 0;
+  background: var(--c);
+}
+.stat-body { flex: 1; padding-left: 4px; }
+.stat-num {
+  font-size: 26px; font-weight: 800; color: var(--c);
+  line-height: 1; margin-bottom: 3px;
   font-variant-numeric: tabular-nums;
 }
+.stat-label { font-size: 12px; color: #64748b; font-weight: 500; }
+.stat-icon { font-size: 20px; color: var(--c); opacity: 0.25; flex-shrink: 0; }
 
-.stat-label {
-  font-size: 12.5px;
-  color: #64748b;
-  font-weight: 500;
+/* ── 主网格 ── */
+.main-grid {
+  display: grid;
+  grid-template-columns: 1fr 340px;
+  gap: 18px;
+  margin: 0 40px 32px;
 }
 
-/* ── 任务列表卡片 ── */
-.section-card {
+/* ── 通用 panel ── */
+.panel {
   background: #fff;
-  border: 1px solid #e8edf4;
-  border-radius: 12px;
+  border-radius: 14px;
+  border: 1px solid #e2e8f0;
   overflow: hidden;
-  margin-bottom: 24px;
-  opacity: 0;
+  box-shadow: 0 1px 4px rgba(0,0,0,0.04);
 }
-
-.section-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 14px 18px;
+.panel-head {
+  display: flex; align-items: baseline; gap: 8px;
+  padding: 16px 20px 12px;
   border-bottom: 1px solid #f1f5f9;
 }
+.panel-title { font-size: 14px; font-weight: 700; color: #0f172a; }
+.panel-sub   { font-size: 12px; color: #94a3b8; }
 
-.section-title-wrap { display: flex; align-items: center; gap: 8px; }
-.section-dot {
-  width: 8px; height: 8px;
-  border-radius: 50%;
-  background: linear-gradient(135deg, #2563eb, #7c3aed);
-}
-.section-title { font-size: 14px; font-weight: 600; color: #1e293b; }
+/* ── 时间轴 ── */
+.timeline-panel { min-height: 480px; }
+.timeline { padding: 8px 0; }
+.empty { padding: 48px; text-align: center; color: #94a3b8; font-size: 14px; }
 
-/* 表格内元素 */
-.link-text {
-  color: #2563eb;
-  font-weight: 500;
+.tl-item {
+  display: flex;
+  gap: 0;
+  padding: 0 20px;
   cursor: pointer;
-  font-size: 13px;
 }
-.link-text:hover { text-decoration: underline; }
+.tl-item:hover .tl-content { background: #f8fafc; border-radius: 8px; }
 
-.code-tag {
-  font-family: monospace;
-  font-size: 12px;
-  background: #f1f5f9;
-  color: #475569;
-  padding: 2px 7px;
-  border-radius: 5px;
+.tl-line-wrap {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  width: 28px;
+  flex-shrink: 0;
+  padding-top: 14px;
 }
-
-.status-pill {
-  display: inline-block;
-  padding: 2px 9px;
-  border-radius: 20px;
-  font-size: 12px;
-  font-weight: 500;
-  white-space: nowrap;
+.tl-dot {
+  width: 10px; height: 10px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  border: 2px solid #fff;
+  box-shadow: 0 0 0 2px currentColor;
 }
-.pill-completed { background: #ecfdf5; color: #059669; }
-.pill-running   { background: #fffbeb; color: #d97706; }
-.pill-pending   { background: #eff6ff; color: #2563eb; }
-.pill-failed    { background: #fef2f2; color: #dc2626; }
-.pill-cancelled { background: #f8fafc; color: #64748b; }
+.tl-dot--completed { color: #10b981; background: #10b981; }
+.tl-dot--running   { color: #f59e0b; background: #f59e0b; }
+.tl-dot--pending   { color: #3b82f6; background: #3b82f6; }
+.tl-dot--failed    { color: #ef4444; background: #ef4444; }
+.tl-dot--cancelled { color: #94a3b8; background: #94a3b8; }
+.tl-dot--scan      { color: #8b5cf6; background: #8b5cf6; }
 
-.trigger-tag { font-size: 12px; color: #94a3b8; }
-.owner-tag { font-size: 12px; color: #6366f1; font-weight: 500; }
-
-.empty-tip {
-  padding: 40px;
-  text-align: center;
-  color: #94a3b8;
-  font-size: 14px;
+.tl-line {
+  flex: 1;
+  width: 1px;
+  background: #e2e8f0;
+  min-height: 16px;
+  margin-top: 4px;
 }
+.tl-item:last-child .tl-line { display: none; }
+
+.tl-content {
+  flex: 1;
+  padding: 10px 10px 10px 8px;
+  min-width: 0;
+}
+.tl-top {
+  display: flex; align-items: center; gap: 6px;
+  flex-wrap: wrap; margin-bottom: 4px;
+}
+.tl-kind {
+  font-size: 10px; font-weight: 700; padding: 1px 6px;
+  border-radius: 4px; letter-spacing: 0.05em;
+}
+.kind--task { background: #dbeafe; color: #1d4ed8; }
+.kind--scan { background: #ede9fe; color: #7c3aed; }
+
+.tl-title { font-size: 13px; font-weight: 600; color: #1e293b; flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tl-risk  { font-size: 11px; color: #dc2626; font-weight: 600; white-space: nowrap; }
+.tl-status { font-size: 11px; padding: 1px 7px; border-radius: 99px; white-space: nowrap; }
+.sts--completed { background: #dcfce7; color: #166534; }
+.sts--running   { background: #fef3c7; color: #92400e; }
+.sts--pending   { background: #dbeafe; color: #1e40af; }
+.sts--failed    { background: #fee2e2; color: #991b1b; }
+.sts--cancelled { background: #f1f5f9; color: #64748b; }
+
+.tl-bottom { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.tl-sub { font-family: monospace; font-size: 11px; color: #94a3b8; background: #f8fafc; padding: 1px 5px; border-radius: 3px; }
+.tl-time { font-size: 11px; color: #cbd5e1; white-space: nowrap; }
+
+/* ── 右侧栏 ── */
+.right-col { display: flex; flex-direction: column; gap: 18px; }
+
+/* ── 系统资产 ── */
+.asset-grid {
+  display: grid; grid-template-columns: repeat(3, 1fr);
+  gap: 1px; background: #f1f5f9;
+}
+.asset-item {
+  display: flex; flex-direction: column; align-items: center;
+  gap: 6px; padding: 20px 12px;
+  background: #fff;
+  cursor: pointer; transition: background 0.15s;
+}
+.asset-item:hover { background: #f8fafc; }
+.asset-icon { font-size: 22px; color: var(--ac); opacity: 0.7; }
+.asset-num  { font-size: 28px; font-weight: 800; color: var(--ac); line-height: 1; }
+.asset-label { font-size: 11px; color: #94a3b8; font-weight: 500; }
+
+/* ── 热力图 ── */
+.heatmap {
+  display: flex;
+  justify-content: space-around;
+  align-items: flex-end;
+  padding: 12px 16px 4px;
+  gap: 6px;
+}
+.hm-day {
+  flex: 1;
+  display: flex; flex-direction: column; align-items: center;
+  gap: 4px; position: relative;
+}
+.hm-bar {
+  width: 100%; height: 64px;
+  display: flex; flex-direction: column; justify-content: flex-end;
+  background: #f1f5f9; border-radius: 6px; overflow: hidden;
+  padding: 2px;
+}
+.hm-completed {
+  width: 100%; background: #10b981; border-radius: 4px 4px 0 0;
+  min-height: 2px; transition: height 0.4s ease;
+}
+.hm-failed {
+  width: 100%; background: #f87171; border-radius: 4px 4px 0 0;
+  min-height: 0; transition: height 0.4s ease;
+}
+.hm-date  { font-size: 10px; color: #94a3b8; }
+.hm-count { font-size: 11px; color: #475569; font-weight: 600; }
+
+.hm-legend {
+  display: flex; align-items: center; gap: 12px;
+  padding: 4px 16px 12px;
+  font-size: 11px; color: #94a3b8;
+}
+.leg-dot { width: 8px; height: 8px; border-radius: 2px; display: inline-block; margin-right: 3px; }
+.leg-completed { background: #10b981; }
+.leg-failed    { background: #f87171; }
 </style>

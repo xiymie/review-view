@@ -16,10 +16,11 @@ import (
 )
 
 type Server struct {
-	engine    *gin.Engine
-	addr      string
-	scheduler *service.Scheduler
-	cache     *service.TaskCache
+	engine        *gin.Engine
+	addr          string
+	scheduler     *service.Scheduler
+	cache         *service.TaskCache
+	scanScheduler *service.ScanScheduler
 }
 
 func NewRouterWithDependencies(handlers *handler.Handlers) *gin.Engine {
@@ -74,9 +75,19 @@ func NewServer(cfg config.Config) (*Server, error) {
 
 	projectService := service.NewProjectService(stores.Projects, stores.ModelConfigs, stores.Tasks, repoManager, stores.Credentials)
 	modelService := service.NewModelConfigService(stores.ModelConfigs)
-	dashboardService := service.NewDashboardService(stores.Projects, stores.Tasks)
+	dashboardService := service.NewDashboardService(stores.Projects, stores.Tasks, stores.ModelConfigs, stores.Credentials, stores.ScanSchedules, stores.ScanJobs, stores.Users, stores.SensitiveWords)
 	credentialService := service.NewRepoCredentialService(stores.Credentials, stores.Projects)
 	taskHandler := handler.NewTaskHandler(stores.Tasks, stores.Projects, taskService, scheduler, logBuffer, stores.Users)
+
+	scanService := service.NewScanService(
+		stores.ScanSchedules,
+		stores.ScanJobs,
+		stores.ModelConfigs,
+		stores.Credentials,
+		settingsService,
+		repoManager,
+	)
+	scanScheduler := service.NewScanScheduler(scanService, stores.ScanSchedules, settingsService)
 
 	engine := NewRouterWithDependencies(&handler.Handlers{
 		Dashboard:      handler.NewDashboardHandler(dashboardService, stores.Users),
@@ -89,6 +100,7 @@ func NewServer(cfg config.Config) (*Server, error) {
 		Auth:           handler.NewAuthHandler(stores.Users),
 		SensitiveWords: handler.NewSensitiveWordHandler(sensitiveWordService),
 		Users:          handler.NewUserHandler(stores.Users, settingsService),
+		Scan:           handler.NewScanHandler(scanService, settingsService, stores.ModelConfigs, stores.Credentials),
 	})
 
 	// 清理上次运行残留的 running 任务
@@ -98,10 +110,11 @@ func NewServer(cfg config.Config) (*Server, error) {
 	_, _ = stores.Projects.RecoverInitializing()
 
 	return &Server{
-		engine:    engine,
-		addr:      cfg.Addr,
-		scheduler: scheduler,
-		cache:     logBuffer,
+		engine:        engine,
+		addr:          cfg.Addr,
+		scheduler:     scheduler,
+		cache:         logBuffer,
+		scanScheduler: scanScheduler,
 	}, nil
 }
 
@@ -113,6 +126,7 @@ func (s *Server) Run() error {
 	ctx := context.Background()
 	go s.cache.StartFlushLoop(ctx)
 	go s.scheduler.Loop(ctx)
+	go s.scanScheduler.Loop(ctx)
 	return s.engine.Run(s.addr)
 }
 

@@ -37,6 +37,9 @@
         <!-- 仅管理员可见 -->
         <template v-if="isAdmin">
           <div class="nav-group-label">管理</div>
+          <router-link class="nav-item" :class="{ active: activeMenu === '/scan' }" to="/scan">
+            <el-icon><Search /></el-icon><span>巡检配置</span>
+          </router-link>
           <router-link class="nav-item" :class="{ active: activeMenu === '/users' }" to="/users">
             <el-icon><UserFilled /></el-icon><span>用户管理</span>
           </router-link>
@@ -115,7 +118,7 @@ import { useRoute, useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import {
   DataBoard, FolderOpened, Cpu, Key,
-  List, Setting, SwitchButton, Filter, UserFilled, Document, Timer, Bell,
+  List, Setting, SwitchButton, Filter, UserFilled, Document, Timer, Bell, Search,
 } from '@element-plus/icons-vue'
 import { getMe, updateMe } from '../api/users'
 

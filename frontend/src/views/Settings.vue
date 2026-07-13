@@ -52,8 +52,43 @@
           <div class="field-tip">关闭时，手动触发遇到无新提交将直接跳过，不发起 Review 也不发邮件</div>
         </el-form-item>
 
-        <el-divider>邮件推送 SMTP 配置</el-divider>
+        <el-divider>巡检全局配置</el-divider>
 
+        <el-form-item label="默认巡检时间">
+          <el-input v-model="form.scan_default_time" placeholder="格式 HH:MM，如 09:00" clearable style="max-width:200px" />
+          <div class="field-tip">各巡检配置未单独设置时间时使用此值</div>
+        </el-form-item>
+
+        <el-form-item label="默认巡检提示词">
+          <el-input
+            v-model="form.scan_default_prompt"
+            type="textarea"
+            :rows="5"
+            placeholder="留空使用内置默认提示词"
+            clearable
+          />
+          <div class="field-tip">支持占位符：第1个%s=仓库URL、第2个%s=分支名、第3个%s=日期、%d=commit数量、最后%s=commit列表</div>
+        </el-form-item>
+
+        <el-form-item label="NAS WebDAV 地址">
+          <el-input v-model="form.scan_nas_url" placeholder="http://192.168.1.100:5005/reports" clearable />
+          <div class="field-tip">群晖 WebDAV，控制面板→文件服务→WebDAV 启用后使用此地址</div>
+        </el-form-item>
+
+        <el-form-item label="NAS 用户名">
+          <el-input v-model="form.scan_nas_username" clearable />
+        </el-form-item>
+
+        <el-form-item label="NAS 密码">
+          <el-input v-model="form.scan_nas_password" type="password" show-password placeholder="留空则不更新密码" clearable />
+        </el-form-item>
+
+        <el-form-item label="报告保留天数">
+          <el-input-number v-model="form.scan_retain_days" :min="0" :step="1" style="width:160px" />
+          <div class="field-tip">0 = 永久保留；设为 7 则每次巡检时自动删除 NAS 上 7 天前的报告</div>
+        </el-form-item>
+
+        <el-divider>邮件推送 SMTP 配置</el-divider>
         <el-form-item label="SMTP 服务器地址">
           <el-input v-model="form.smtp_host" placeholder="smtp.example.com" clearable />
         </el-form-item>
@@ -128,6 +163,13 @@ const form = ref({
   smtp_from: '',
   smtp_from_name: '',
   smtp_tls: 'true',
+  // 巡检全局配置
+  scan_default_time: '',
+  scan_default_prompt: '',
+  scan_nas_url: '',
+  scan_nas_username: '',
+  scan_nas_password: '',
+  scan_retain_days: 0,
 })
 
 onMounted(async () => {
@@ -136,6 +178,7 @@ onMounted(async () => {
     const res = await getSettings()
     Object.assign(form.value, res.data)
     form.value.smtp_password = ''
+    form.value.scan_nas_password = ''
   } catch (err) {
     ElMessage.error(err.response?.data?.message || '操作失败')
   } finally {
@@ -149,6 +192,7 @@ const handleSave = async () => {
     await updateSettings(form.value)
     ElMessage.success('保存成功')
     form.value.smtp_password = ''
+    form.value.scan_nas_password = ''
   } catch (err) {
     ElMessage.error(err.response?.data?.message || '操作失败')
   } finally {

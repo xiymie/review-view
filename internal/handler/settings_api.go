@@ -36,6 +36,12 @@ func (h *SettingsHandler) APIGet(c *gin.Context) {
 		"smtp_from":                   smtpFrom,
 		"smtp_from_name":              smtpFromName,
 		"smtp_tls":                    smtpTLS,
+		// 巡检全局配置
+		"scan_default_time":    settings.ScanDefaultTime,
+		"scan_default_prompt":  settings.ScanDefaultPrompt,
+		"scan_nas_url":         settings.ScanNasURL,
+		"scan_nas_username":    settings.ScanNasUsername,
+		"scan_retain_days":     settings.ScanRetainDays,
 	})
 }
 
@@ -54,6 +60,13 @@ func (h *SettingsHandler) APIUpdate(c *gin.Context) {
 		SMTPFrom               string `json:"smtp_from"`
 		SMTPFromName           string `json:"smtp_from_name"`
 		SMTPTLS                string `json:"smtp_tls"`
+		// 巡检全局配置
+		ScanDefaultTime   string `json:"scan_default_time"`
+		ScanDefaultPrompt string `json:"scan_default_prompt"`
+		ScanNasURL        string `json:"scan_nas_url"`
+		ScanNasUsername   string `json:"scan_nas_username"`
+		ScanNasPassword   string `json:"scan_nas_password"`
+		ScanRetainDays    int    `json:"scan_retain_days"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"message": err.Error()})
@@ -67,6 +80,12 @@ func (h *SettingsHandler) APIUpdate(c *gin.Context) {
 		RepoBaseDir:            req.RepoBaseDir,
 		ScheduledScanUnchanged: req.ScheduledScanUnchanged,
 		ManualScanUnchanged:    req.ManualScanUnchanged,
+		ScanDefaultTime:        req.ScanDefaultTime,
+		ScanDefaultPrompt:      req.ScanDefaultPrompt,
+		ScanNasURL:             req.ScanNasURL,
+		ScanNasUsername:        req.ScanNasUsername,
+		ScanNasPassword:        req.ScanNasPassword,
+		ScanRetainDays:         req.ScanRetainDays,
 	})
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"message": err.Error()})

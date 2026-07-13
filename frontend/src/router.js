@@ -21,6 +21,7 @@ import UsersNew from './views/users/New.vue'
 import UsersEdit from './views/users/Edit.vue'
 import Docs from './views/Docs.vue'
 import ScanSchedulesIndex from './views/scan-schedules/Index.vue'
+import ScanIndex from './views/scan/Index.vue'
 import NotifyIndex from './views/notify/Index.vue'
 
 const router = createRouter({
@@ -41,6 +42,7 @@ const router = createRouter({
         { path: 'tasks/:id',               component: TasksShow },
         // Admin-only routes
         { path: 'scan-schedules',          component: ScanSchedulesIndex },
+        { path: 'scan',                    component: ScanIndex,                meta: { adminOnly: true } },
         { path: 'notify',                  component: NotifyIndex },
         { path: 'models',                  component: ModelsIndex,          meta: { adminOnly: true } },
         { path: 'models/new',              component: ModelsNew,            meta: { adminOnly: true } },
