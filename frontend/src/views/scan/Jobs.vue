@@ -23,6 +23,16 @@
             <el-icon><Document /></el-icon>
             <a :href="job.report_path" target="_blank" rel="noopener">{{ job.report_path }}</a>
           </span>
+          <el-button
+            link
+            type="danger"
+            size="small"
+            class="del-btn"
+            @click.stop="handleDelete(job)"
+            :disabled="job.status === 'running'"
+          >
+            <el-icon><Delete /></el-icon>
+          </el-button>
           <el-icon class="expand-icon" :class="{ rotated: expandedJobId === job.id }"><ArrowDown /></el-icon>
         </div>
       </div>
@@ -52,9 +62,9 @@
 
 <script setup>
 import { ref, onMounted, watch, nextTick } from 'vue'
-import { ElMessage } from 'element-plus'
-import { Refresh, Document, ArrowDown, Warning } from '@element-plus/icons-vue'
-import { listScanJobs, getScanJob } from '../../api/scan'
+import { ElMessage, ElMessageBox } from 'element-plus'
+import { Refresh, Document, ArrowDown, Warning, Delete } from '@element-plus/icons-vue'
+import { listScanJobs, getScanJob, deleteScanJob } from '../../api/scan'
 
 const props = defineProps({
   scheduleId: { type: Number, required: true },
@@ -149,6 +159,21 @@ onMounted(async () => {
 
 // 暴露 load 给父组件轮询时调用
 defineExpose({ load })
+
+async function handleDelete(job) {
+  await ElMessageBox.confirm(
+    `确认删除该条执行记录（${formatTime(job.triggered_at)}）？删除后不可恢复。`,
+    '删除确认',
+    { type: 'warning', confirmButtonText: '删除', confirmButtonClass: 'el-button--danger' }
+  )
+  try {
+    await deleteScanJob(job.id)
+    ElMessage.success('已删除')
+    await load()
+  } catch (err) {
+    ElMessage.error(err.response?.data?.error || '删除失败')
+  }
+}
 </script>
 
 <style scoped>
@@ -183,6 +208,8 @@ defineExpose({ load })
 .report-path a:hover { text-decoration: underline; }
 .expand-icon { color: #94a3b8; transition: transform 0.2s; }
 .expand-icon.rotated { transform: rotate(180deg); }
+.del-btn { color: #94a3b8 !important; font-size: 14px; }
+.del-btn:hover { color: #ef4444 !important; }
 
 .pill { display: inline-block; padding: 2px 8px; border-radius: 99px; font-size: 11px; font-weight: 600; }
 .pill-done    { background: #dcfce7; color: #166534; }

@@ -11,46 +11,69 @@
       </el-button>
     </div>
 
-    <!-- Table -->
-    <div class="table-card">
-      <el-table :data="list" v-loading="loading" row-key="id" stripe>
-        <el-table-column label="名称" min-width="140">
-          <template #default="{ row }">
-            <span class="name-link" @click="openJobs(row)">{{ row.name }}</span>
-          </template>
-        </el-table-column>
+    <!-- 卡片列表 -->
+    <div class="list-wrap" v-loading="loading">
+      <div v-if="!loading && list.length === 0" class="empty-state">
+        <el-empty description="暂无巡检配置，点击右上角新建" />
+      </div>
 
-        <el-table-column label="仓库" min-width="200">
-          <template #default="{ row }">
-            <span class="repo-url">{{ row.repo_url }}</span>
-          </template>
-        </el-table-column>
-
-        <el-table-column label="巡检时间" width="110">
-          <template #default="{ row }">
-            <code class="time-code">{{ row.scan_time || '全局默认' }}</code>
-          </template>
-        </el-table-column>
-
-        <el-table-column label="状态" width="90">
-          <template #default="{ row }">
-            <span :class="['pill', row.enabled ? 'pill-on' : 'pill-off']">
+      <div v-for="row in list" :key="row.id" class="item-card">
+        <!-- 左：名称 + 仓库 -->
+        <div class="item-main">
+          <div class="item-name-row">
+            <span class="item-name" @click="openJobs(row)">{{ row.name }}</span>
+            <span :class="['status-pill', row.enabled ? 'pill-on' : 'pill-off']">
               {{ row.enabled ? '启用' : '停用' }}
             </span>
-          </template>
-        </el-table-column>
+          </div>
+          <el-tooltip :content="row.repo_url" placement="top" :show-after="400">
+            <div class="item-repo">
+              <el-icon class="repo-icon"><Link /></el-icon>
+              <span class="repo-url-text">{{ row.repo_url }}</span>
+            </div>
+          </el-tooltip>
+        </div>
 
-        <el-table-column label="操作" width="200" fixed="right">
-          <template #default="{ row }">
-            <el-button link type="primary" size="small" @click="openJobs(row)">记录</el-button>
-            <el-button link type="primary" size="small" @click="openEdit(row)">编辑</el-button>
-            <el-button link size="small" @click="handleTrigger(row)" :loading="triggeringId === row.id">
-              立即执行
+        <!-- 中：巡检时间 -->
+        <div class="item-meta">
+          <div class="meta-label">巡检时间</div>
+          <code class="time-code">{{ row.scan_time || '全局默认' }}</code>
+        </div>
+
+        <!-- 右：操作 -->
+        <div class="item-actions">
+          <el-button size="small" @click="openJobs(row)">
+            <el-icon><Document /></el-icon> 记录
+          </el-button>
+          <el-button
+            size="small"
+            type="primary"
+            :loading="triggeringId === row.id"
+            @click="handleTrigger(row)"
+          >
+            <el-icon><VideoPlay /></el-icon> 执行
+          </el-button>
+          <el-dropdown trigger="click" @command="cmd => handleCmd(cmd, row)">
+            <el-button size="small">
+              <el-icon><MoreFilled /></el-icon>
             </el-button>
-            <el-button link type="danger" size="small" @click="handleDelete(row)">删除</el-button>
-          </template>
-        </el-table-column>
-      </el-table>
+            <template #dropdown>
+              <el-dropdown-menu>
+                <el-dropdown-item command="edit">
+                  <el-icon><Edit /></el-icon> 编辑
+                </el-dropdown-item>
+                <el-dropdown-item command="toggle">
+                  <el-icon><VideoPause v-if="row.enabled" /><VideoPlay v-else /></el-icon>
+                  {{ row.enabled ? '暂停' : '恢复' }}
+                </el-dropdown-item>
+                <el-dropdown-item command="delete" divided class="danger-item">
+                  <el-icon><Delete /></el-icon> 删除
+                </el-dropdown-item>
+              </el-dropdown-menu>
+            </template>
+          </el-dropdown>
+        </div>
+      </div>
     </div>
 
     <!-- 执行记录侧滑 -->
@@ -171,12 +194,13 @@
 import { ref, onMounted, onUnmounted } from 'vue'
 import { useRoute } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { Plus } from '@element-plus/icons-vue'
+import { Plus, Document, VideoPlay, VideoPause, MoreFilled, Edit, Delete, Link } from '@element-plus/icons-vue'
 import {
   listScanSchedules,
   createScanSchedule,
   updateScanSchedule,
   deleteScanSchedule,
+  toggleScanSchedule,
   triggerScanSchedule,
   listScanModels,
   listScanCredentials,
@@ -201,7 +225,6 @@ const currentSchedule = ref(null)
 const scanJobsRef = ref(null)
 const initialJobId = ref(null)
 
-// 触发后轮询
 const runningJobId = ref(null)
 let pollTimer = null
 
@@ -233,7 +256,6 @@ async function load() {
   } finally {
     loading.value = false
   }
-  // 模型和凭据独立加载，不因主列表失败而中断
   try {
     const r2 = await listScanModels()
     models.value = r2.data
@@ -277,6 +299,22 @@ function openEdit(row) {
 function openJobs(row) {
   currentSchedule.value = row
   jobsDrawerVisible.value = true
+}
+
+function handleCmd(cmd, row) {
+  if (cmd === 'edit') openEdit(row)
+  if (cmd === 'toggle') handleToggle(row)
+  if (cmd === 'delete') handleDelete(row)
+}
+
+async function handleToggle(row) {
+  try {
+    const res = await toggleScanSchedule(row.id)
+    row.enabled = res.data.enabled
+    ElMessage.success(row.enabled ? '已恢复' : '已暂停')
+  } catch (err) {
+    ElMessage.error(err.response?.data?.error || '操作失败')
+  }
 }
 
 async function save() {
@@ -323,12 +361,8 @@ async function handleTrigger(row) {
   try {
     await triggerScanSchedule(row.id)
     ElMessage.success('巡检已启动')
-
-    // 打开执行记录面板
     currentSchedule.value = row
     jobsDrawerVisible.value = true
-
-    // 等一秒让后端创建 job，然后开始轮询最新 job 状态
     setTimeout(() => startPolling(row.id), 1200)
   } catch (err) {
     ElMessage.error(err.response?.data?.error || '触发失败')
@@ -339,7 +373,6 @@ async function handleTrigger(row) {
 
 async function startPolling(scheduleId) {
   stopPolling()
-  // 先拿最新的 job id
   try {
     const res = await listScanJobs(scheduleId)
     const jobs = res.data
@@ -359,7 +392,6 @@ async function pollJob(jobId) {
     if (job.status === 'completed' || job.status === 'failed') {
       stopPolling()
       runningJobId.value = null
-      // 通知 Jobs 子组件刷新
       scanJobsRef.value?.load()
       if (job.status === 'completed') {
         ElMessage.success(`巡检完成，${job.changed_branch_count} 个分支有改动`)
@@ -367,17 +399,13 @@ async function pollJob(jobId) {
         ElMessage.error(`巡检失败: ${job.error_message || '未知错误'}`)
       }
     } else {
-      // 还在跑，通知子组件刷新列表
       scanJobsRef.value?.load()
     }
   } catch { /* ignore */ }
 }
 
 function stopPolling() {
-  if (pollTimer) {
-    clearInterval(pollTimer)
-    pollTimer = null
-  }
+  if (pollTimer) { clearInterval(pollTimer); pollTimer = null }
 }
 
 async function handleDelete(row) {
@@ -397,11 +425,9 @@ async function handleDelete(row) {
 
 onMounted(async () => {
   await load()
-  // 处理从首页最近动态跳转过来的 job_id
   const jobIdParam = route.query.job_id
   if (jobIdParam) {
     const jobId = parseInt(jobIdParam)
-    // 需要找到该 job 属于哪个 schedule，用 API 查
     try {
       const res = await getScanJob(jobId)
       const jobData = res.data?.job || res.data
@@ -413,7 +439,7 @@ onMounted(async () => {
           jobsDrawerVisible.value = true
         }
       }
-    } catch { /* ignore, just don't open */ }
+    } catch { /* ignore */ }
   }
 })
 onUnmounted(stopPolling)
@@ -422,42 +448,188 @@ onUnmounted(stopPolling)
 <style scoped>
 .page { min-height: 100vh; background: #f8fafc; }
 
+/* Hero */
 .hero {
   background: linear-gradient(135deg, #7c3aed 0%, #2563eb 100%);
   padding: 28px 36px 24px;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
+  display: flex; align-items: center; justify-content: space-between;
 }
 .hero-title { font-size: 22px; font-weight: 700; color: #fff; margin-bottom: 4px; }
 .hero-subtitle { font-size: 13px; color: rgba(255,255,255,0.75); }
-.new-btn { background: rgba(255,255,255,0.15); border: 1px solid rgba(255,255,255,0.3); color: #fff; }
-.new-btn:hover { background: rgba(255,255,255,0.25); border-color: rgba(255,255,255,0.5); color: #fff; }
+.new-btn {
+  background: rgba(255,255,255,0.15);
+  border: 1px solid rgba(255,255,255,0.3);
+  color: #fff;
+}
+.new-btn:hover {
+  background: rgba(255,255,255,0.25);
+  border-color: rgba(255,255,255,0.5);
+  color: #fff;
+}
 
-.table-card {
+/* 卡片列表 */
+.list-wrap {
   margin: 24px 36px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.empty-state {
   background: #fff;
   border-radius: 12px;
   border: 1px solid #e2e8f0;
+  padding: 40px;
+}
+
+.item-card {
+  background: #fff;
+  border-radius: 12px;
+  border: 1px solid #e2e8f0;
+  padding: 16px 20px;
+  display: flex;
+  align-items: center;
+  gap: 24px;
+  transition: box-shadow 0.15s, border-color 0.15s;
+}
+.item-card:hover {
+  box-shadow: 0 2px 12px rgba(0,0,0,0.07);
+  border-color: #cbd5e1;
+}
+.item-card:nth-child(5n+1) { background: #f0f7ff; border-color: #dbeafe; }
+.item-card:nth-child(5n+2) { background: #f0fdf4; border-color: #dcfce7; }
+.item-card:nth-child(5n+3) { background: #fdf4ff; border-color: #f3e8ff; }
+.item-card:nth-child(5n+4) { background: #fff7ed; border-color: #fed7aa; }
+.item-card:nth-child(5n+5) { background: #f0fdfa; border-color: #ccfbf1; }
+.item-card:nth-child(5n+1):hover { border-color: #93c5fd; }
+.item-card:nth-child(5n+2):hover { border-color: #86efac; }
+.item-card:nth-child(5n+3):hover { border-color: #d8b4fe; }
+.item-card:nth-child(5n+4):hover { border-color: #fb923c; }
+.item-card:nth-child(5n+5):hover { border-color: #5eead4; }
+
+/* 左：名称+仓库 */
+.item-main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.item-name-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.item-name {
+  font-size: 14px;
+  font-weight: 600;
+  color: #1e293b;
+  cursor: pointer;
+  white-space: nowrap;
   overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 260px;
 }
+.item-name:hover { color: #2563eb; }
 
-.name-link { color: #2563eb; cursor: pointer; font-weight: 500; }
-.name-link:hover { text-decoration: underline; }
-.repo-url { font-size: 12px; color: #64748b; font-family: monospace; }
-.time-code {
-  font-family: monospace; font-size: 12px;
-  background: #f1f5f9; color: #334155;
-  padding: 2px 7px; border-radius: 4px;
+.status-pill {
+  display: inline-block;
+  padding: 1px 9px;
+  border-radius: 99px;
+  font-size: 11px;
+  font-weight: 600;
+  flex-shrink: 0;
 }
-
-.pill { display: inline-block; padding: 2px 10px; border-radius: 99px; font-size: 12px; font-weight: 500; }
 .pill-on  { background: #dcfce7; color: #166534; }
 .pill-off { background: #f1f5f9; color: #64748b; }
 
+.item-repo {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+}
+.repo-icon {
+  font-size: 12px;
+  color: #94a3b8;
+  flex-shrink: 0;
+}
+.repo-url-text {
+  font-size: 12px;
+  color: #94a3b8;
+  font-family: 'SFMono-Regular', 'Menlo', monospace;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* 中：巡检时间 */
+.item-meta {
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  min-width: 80px;
+}
+.meta-label {
+  font-size: 11px;
+  color: #94a3b8;
+}
+.time-code {
+  font-family: 'SFMono-Regular', 'Menlo', monospace;
+  font-size: 12px;
+  background: #f1f5f9;
+  color: #334155;
+  padding: 2px 8px;
+  border-radius: 4px;
+  white-space: nowrap;
+}
+
+/* 右：操作 */
+.item-actions {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.item-actions :deep(.el-button) {
+  height: 34px;
+  padding: 0 16px;
+  font-size: 13px;
+  font-weight: 500;
+  border-radius: 8px;
+}
+.item-actions :deep(.el-button .el-icon) {
+  font-size: 14px;
+}
+/* 执行按钮加渐变更醒目 */
+.item-actions :deep(.el-button--primary) {
+  background: linear-gradient(135deg, #6366f1, #2563eb);
+  border-color: transparent;
+}
+.item-actions :deep(.el-button--primary:hover) {
+  background: linear-gradient(135deg, #4f46e5, #1d4ed8);
+  border-color: transparent;
+}
+/* 更多按钮 */
+.item-actions :deep(.el-button:not(.el-button--primary)) {
+  border-color: #e2e8f0;
+  color: #475569;
+}
+.item-actions :deep(.el-button:not(.el-button--primary):hover) {
+  border-color: #94a3b8;
+  color: #1e293b;
+  background: #f8fafc;
+}
+
+/* 下拉危险项 */
+.danger-item { color: #dc2626 !important; }
+.danger-item:hover { background: #fef2f2 !important; }
+
+/* Form / Drawer */
 .form-body { padding: 8px 4px; }
 .drawer-footer { display: flex; justify-content: flex-end; gap: 8px; }
-
 .nas-test-row { display: flex; align-items: center; gap: 10px; }
 .nas-test-result { font-size: 13px; }
 .nas-test-result.ok   { color: #16a34a; }

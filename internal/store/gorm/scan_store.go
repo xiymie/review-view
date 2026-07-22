@@ -79,6 +79,15 @@ func (s *ScanJobStore) Update(v *model.ScanJob) error {
 	return s.db.Save(v).Error
 }
 
+func (s *ScanJobStore) Delete(id int64) error {
+	return s.db.Transaction(func(tx *gorm.DB) error {
+		if err := tx.Where("job_id = ?", id).Delete(&model.ScanBranchResult{}).Error; err != nil {
+			return err
+		}
+		return tx.Delete(&model.ScanJob{}, id).Error
+	})
+}
+
 func (s *ScanJobStore) GetByID(id int64) (*model.ScanJob, error) {
 	var v model.ScanJob
 	if err := s.db.First(&v, id).Error; err != nil {

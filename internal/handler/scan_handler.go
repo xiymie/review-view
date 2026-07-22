@@ -149,6 +149,22 @@ func (h *ScanHandler) APIGet(c *gin.Context) {
 	c.JSON(http.StatusOK, toScheduleResp(v))
 }
 
+// APIToggleEnabled PATCH /api/scan-schedules/:id/toggle
+func (h *ScanHandler) APIToggleEnabled(c *gin.Context) {
+	id, _ := strconv.ParseInt(c.Param("id"), 10, 64)
+	v, err := h.svc.Get(id)
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "not found"})
+		return
+	}
+	v.Enabled = !v.Enabled
+	if err := h.svc.Update(v); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"enabled": v.Enabled})
+}
+
 // APICreate POST /api/scan-schedules
 func (h *ScanHandler) APICreate(c *gin.Context) {
 	var req struct {
@@ -256,6 +272,25 @@ func (h *ScanHandler) APIListJobs(c *gin.Context) {
 		out = append(out, toJobResp(j))
 	}
 	c.JSON(http.StatusOK, out)
+}
+
+// APIDeleteJob DELETE /api/scan-jobs/:id
+func (h *ScanHandler) APIDeleteJob(c *gin.Context) {
+	id, _ := strconv.ParseInt(c.Param("id"), 10, 64)
+	job, err := h.svc.GetJob(id)
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "not found"})
+		return
+	}
+	if job.Status == model.ScanJobStatusRunning {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "运行中的巡检不能删除"})
+		return
+	}
+	if err := h.svc.DeleteJob(id); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"ok": true})
 }
 
 // APIGetJob GET /api/scan-jobs/:id

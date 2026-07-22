@@ -20,26 +20,37 @@ import (
 	"review-view/internal/store"
 )
 
-const defaultScanPrompt = `你是一名代码审查专家。以下是仓库 %s 分支 %s 在 %s 的 %d 个提交记录：
+const defaultScanPrompt = `仓库 %s，分支 %s，日期 %s，共 %d 个提交：
 
 %s
 
-请判断这些提交是否存在以下风险：
-1. 数据库变更（迁移/字段修改/删表）
-2. 依赖升级（可能引入 breaking change）
-3. 配置变更（环境变量/密钥/服务地址）
-4. 核心业务逻辑变更
-5. 安全相关（权限/认证/加密）
-
-如果 commit message 信息不足以判断风险，请在回答末尾明确写上一行：【需要查看代码变更】
-
-否则给出风险等级：无风险 / 低风险 / 中风险 / 高风险，并简要说明原因。`
-
-const diffScanPrompt = `以下是该分支的具体代码变更，请结合上面的 commit 信息重新评估风险：
+以下是本次变更的代码 diff：
 
 %s
 
-请给出最终风险等级（无风险/低风险/中风险/高风险）并说明原因。`
+请结合 commit 信息和代码变更完成以下两项分析：
+
+**一、风险识别**
+识别以下类型的风险（有则列出，无则不提）：
+- DB：数据库结构变更（建表/删表/加减字段/索引）
+- DEP：依赖版本升级（可能引入 breaking change）
+- CFG：配置变更（环境变量/密钥/服务地址/端口）
+- BIZ：核心业务逻辑改动（支付/权限/核心流程）
+- SEC：安全相关（认证/鉴权/加密/敏感数据）
+
+**二、逻辑漏洞检查**
+仅关注逻辑层面的问题，忽略语法错误，检查：
+- 边界条件未处理（空值/零值/越界）
+- 并发/竞态条件
+- 错误处理缺失或忽略错误返回值
+- 条件判断不严谨导致意外分支
+- 数据流中的遗漏校验或状态不一致
+
+**输出格式：**
+**风险等级**：无风险 / 低风险 / 中风险 / 高风险
+**命中风险类型**：（命中的标签，无则填"—"）
+**风险说明**：（简要说明触发原因）
+**逻辑漏洞**：（列出发现的逻辑问题；若无则填"未发现"）`
 
 // ScanConfig 一次巡检所需的完整配置（由 schedule + 全局配置合并而来）
 type ScanConfig struct {
@@ -108,6 +119,11 @@ func (s *ScanService) Delete(id int64) error {
 // ListJobs 获取某个配置的历史执行记录
 func (s *ScanService) ListJobs(scheduleID int64, limit int) ([]model.ScanJob, error) {
 	return s.jobs.ListBySchedule(scheduleID, limit)
+}
+
+// DeleteJob 删除单次执行记录及其分支结果
+func (s *ScanService) DeleteJob(jobID int64) error {
+	return s.jobs.Delete(jobID)
 }
 
 // GetJob 获取单次执行记录
@@ -403,41 +419,38 @@ func (s *ScanService) analyzeBranch(
 		fromCommit = commits[len(commits)-1].Hash
 	}
 
-	// 第一段：commit message 分析
+	// 始终拉 diff
+	var diffText string
+	rawDiff, err := runGit(ctx, repoDir, "git", "log", "-p",
+		fmt.Sprintf("%s..origin/%s", fromCommit, branch))
+	if err != nil || strings.TrimSpace(rawDiff) == "" {
+		// fallback：取最近 24 小时内的 diff
+		rawDiff, _ = runGit(ctx, repoDir, "git", "log", "-p",
+			"--after="+time.Now().Add(-24*time.Hour).Format("2006-01-02"),
+			"origin/"+branch)
+	}
+	diffText = strings.TrimSpace(rawDiff)
+	if len(diffText) > 12000 {
+		diffText = diffText[:12000] + "\n...(已截断)"
+	}
+	if diffText == "" {
+		diffText = "（无可用 diff）"
+	}
+
+	// 单次 LLM 调用，commit 信息 + diff 一起送入
 	promptBase := cfg.Prompt
 	if promptBase == "" {
 		promptBase = defaultScanPrompt
 	}
 	today := time.Now().Format("2006-01-02")
-	firstPrompt := fmt.Sprintf(promptBase, repoURL, branch, today, len(commits), commitText)
+	finalPrompt := fmt.Sprintf(promptBase, repoURL, branch, today, len(commits), commitText, diffText)
 
-	result1, err := s.callLLM(ctx, cfg.ModelConfig, firstPrompt)
+	finalResult, err := s.callLLM(ctx, cfg.ModelConfig, finalPrompt)
 	if err != nil {
-		return nil, fmt.Errorf("first LLM call: %w", err)
+		return nil, fmt.Errorf("LLM call: %w", err)
 	}
 
-	stage := model.ScanAnalysisStageMessageOnly
-	finalResult := result1
-	needDiff := strings.Contains(result1, "需要查看代码变更")
-
-	if needDiff {
-		// 第二段：拉 diff 追加分析
-		diffOut, err := runGit(ctx, repoDir, "git", "log", "-p", "--after="+time.Now().Add(-24*time.Hour).Format("2006-01-02"), "origin/"+branch)
-		if err == nil && strings.TrimSpace(diffOut) != "" {
-			// diff 截断到 8000 字符避免超 token
-			if len(diffOut) > 8000 {
-				diffOut = diffOut[:8000] + "\n...(已截断)"
-			}
-			secondPrompt := result1 + "\n\n" + fmt.Sprintf(diffScanPrompt, diffOut)
-			result2, err := s.callLLM(ctx, cfg.ModelConfig, secondPrompt)
-			if err == nil {
-				stage = model.ScanAnalysisStageWithDiff
-				finalResult = result2
-			}
-		}
-	}
-
-	// 简单解析风险等级
+	stage := model.ScanAnalysisStageWithDiff
 	riskLevel, hasRisk := parseRiskLevel(finalResult)
 
 	return &model.ScanBranchResult{

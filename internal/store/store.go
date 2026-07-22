@@ -86,6 +86,7 @@ type ScanScheduleStore interface {
 type ScanJobStore interface {
 	Create(*model.ScanJob) error
 	Update(*model.ScanJob) error
+	Delete(id int64) error
 	GetByID(id int64) (*model.ScanJob, error)
 	ListBySchedule(scheduleID int64, limit int) ([]model.ScanJob, error)
 	ListBranchResults(jobID int64) ([]model.ScanBranchResult, error)

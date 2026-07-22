@@ -170,6 +170,91 @@
     </div>
 
   </div>
+
+  <!-- 动态详情弹窗 -->
+  <el-dialog
+    v-model="detailVisible"
+    :title="detailKind === 'task' ? 'Review 任务详情' : '巡检任务详情'"
+    width="660px"
+    :close-on-click-modal="true"
+    destroy-on-close
+  >
+    <div v-loading="detailLoading" style="min-height:80px">
+
+      <!-- Task 详情 -->
+      <template v-if="detailKind === 'task' && taskDetail">
+        <el-descriptions :column="2" border size="small">
+          <el-descriptions-item label="项目">{{ taskDetail.project_name }}</el-descriptions-item>
+          <el-descriptions-item label="状态">
+            <span :class="`sts--${taskDetail.task.status}`" style="padding:1px 8px;border-radius:99px;font-size:12px">
+              {{ statusLabel(taskDetail.task.status) }}
+            </span>
+          </el-descriptions-item>
+          <el-descriptions-item label="触发方式">{{ taskDetail.task.triggered_by }}</el-descriptions-item>
+          <el-descriptions-item label="创建时间">{{ taskDetail.task.created_at }}</el-descriptions-item>
+          <el-descriptions-item label="开始时间">{{ taskDetail.task.started_at || '—' }}</el-descriptions-item>
+          <el-descriptions-item label="完成时间">{{ taskDetail.task.finished_at || '—' }}</el-descriptions-item>
+          <el-descriptions-item label="From Commit" :span="2">
+            <code style="font-size:11px">{{ taskDetail.task.from_commit || '—' }}</code>
+            <span v-if="taskDetail.task.from_subject" style="color:#64748b;font-size:12px;margin-left:8px">{{ taskDetail.task.from_subject }}</span>
+          </el-descriptions-item>
+          <el-descriptions-item label="To Commit" :span="2">
+            <code style="font-size:11px">{{ taskDetail.task.to_commit || '—' }}</code>
+            <span v-if="taskDetail.task.to_subject" style="color:#64748b;font-size:12px;margin-left:8px">{{ taskDetail.task.to_subject }}</span>
+          </el-descriptions-item>
+          <el-descriptions-item v-if="taskDetail.task.error_message" label="错误信息" :span="2">
+            <span style="color:#dc2626;font-size:12px">{{ taskDetail.task.error_message }}</span>
+          </el-descriptions-item>
+          <el-descriptions-item v-if="taskDetail.task.input_tokens || taskDetail.task.output_tokens" label="Token 消耗" :span="2">
+            输入 {{ taskDetail.task.input_tokens }} / 输出 {{ taskDetail.task.output_tokens }}
+          </el-descriptions-item>
+        </el-descriptions>
+      </template>
+
+      <!-- Scan 详情 -->
+      <template v-if="detailKind === 'scan' && scanDetail">
+        <el-descriptions :column="2" border size="small" style="margin-bottom:14px">
+          <el-descriptions-item label="状态">
+            <span :class="`sts--${scanDetail.job.status}`" style="padding:1px 8px;border-radius:99px;font-size:12px">
+              {{ statusLabel(scanDetail.job.status) }}
+            </span>
+          </el-descriptions-item>
+          <el-descriptions-item label="触发时间">{{ scanDetail.job.triggered_at }}</el-descriptions-item>
+          <el-descriptions-item label="完成时间">{{ scanDetail.job.finished_at || '—' }}</el-descriptions-item>
+          <el-descriptions-item label="分支情况">
+            {{ scanDetail.job.changed_branch_count }} / {{ scanDetail.job.branch_count }} 分支有改动
+          </el-descriptions-item>
+          <el-descriptions-item v-if="scanDetail.job.error_message" label="错误信息" :span="2">
+            <span style="color:#dc2626;font-size:12px">{{ scanDetail.job.error_message }}</span>
+          </el-descriptions-item>
+          <el-descriptions-item v-if="scanDetail.job.report_path" label="报告路径" :span="2">
+            <a :href="scanDetail.job.report_path" target="_blank" style="color:#2563eb;font-size:12px">{{ scanDetail.job.report_path }}</a>
+          </el-descriptions-item>
+        </el-descriptions>
+
+        <div v-if="scanDetail.results && scanDetail.results.length > 0" style="max-height:360px;overflow-y:auto">
+          <div v-for="br in scanDetail.results" :key="br.id" class="dlg-branch-item">
+            <div class="dlg-branch-header">
+              <span class="branch-name">{{ br.branch_name }}</span>
+              <span :class="['risk-pill', riskClass(br.risk_level)]">{{ riskLabel(br.risk_level) }}</span>
+              <span style="font-size:12px;color:#64748b">{{ br.commit_count }} commits</span>
+              <span style="font-size:11px;color:#94a3b8;margin-left:auto">{{ stageLabel(br.analysis_stage) }}</span>
+            </div>
+            <div class="dlg-branch-result" v-html="renderMd(br.result)" />
+          </div>
+        </div>
+        <div v-else-if="!detailLoading" style="text-align:center;color:#94a3b8;font-size:13px;padding:16px 0">
+          无有改动的分支
+        </div>
+      </template>
+
+    </div>
+
+    <template #footer>
+      <el-button @click="detailVisible = false">关闭</el-button>
+      <el-button type="primary" @click="goDetailPage">查看完整详情</el-button>
+    </template>
+  </el-dialog>
 </template>
 
 <script setup>
@@ -181,8 +266,69 @@ import {
   WarningFilled, Cpu, Key, Search, Refresh, User,
 } from '@element-plus/icons-vue'
 import { getDashboard } from '../api/dashboard'
+import { getTask } from '../api/tasks'
+import { getScanJob } from '../api/scan'
 
 const router = useRouter()
+
+// ---- 动态详情弹窗 ----
+const detailVisible = ref(false)
+const detailLoading = ref(false)
+const detailKind = ref('')   // 'task' | 'scan'
+const taskDetail = ref(null)
+const scanDetail = ref(null)  // { job, results }
+
+function renderMd(text) {
+  if (!text) return ''
+  return text
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+    .replace(/`([^`]+)`/g, '<code>$1</code>')
+    .replace(/\n/g, '<br>')
+}
+
+async function goActivity(act) {
+  detailKind.value = act.kind
+  detailVisible.value = true
+  detailLoading.value = true
+  taskDetail.value = null
+  scanDetail.value = null
+  try {
+    if (act.kind === 'task') {
+      const res = await getTask(act.id)
+      taskDetail.value = res.data
+    } else if (act.kind === 'scan') {
+      const res = await getScanJob(act.id)
+      scanDetail.value = res.data
+    }
+  } catch {
+    ElMessage.error('加载详情失败')
+    detailVisible.value = false
+  } finally {
+    detailLoading.value = false
+  }
+}
+
+function goDetailPage() {
+  detailVisible.value = false
+  if (detailKind.value === 'task' && taskDetail.value) {
+    router.push(`/tasks/${taskDetail.value.task.id}`)
+  } else if (detailKind.value === 'scan' && scanDetail.value) {
+    router.push(`/scan?job_id=${scanDetail.value.job.id}`)
+  }
+}
+
+function riskClass(r) {
+  const map = { high: 'risk-high', medium: 'risk-medium', low: 'risk-low', none: 'risk-none', unknown: 'risk-unknown' }
+  return map[r] || 'risk-unknown'
+}
+function riskLabel(r) {
+  const map = { high: '高风险', medium: '中风险', low: '低风险', none: '无风险', unknown: '未知' }
+  return map[r] || r
+}
+function stageLabel(s) {
+  return s === 'with_diff' ? '含 diff 分析' : 'message 分析'
+}
 const loading = ref(false)
 const username = localStorage.getItem('username') || 'admin'
 const dateLabel = ref('')
@@ -236,13 +382,8 @@ const statusLabel = (s) => ({
   failed: '失败', cancelled: '取消',
 }[s] || s)
 
-function goActivity(act) {
-  if (act.kind === 'task')  router.push(`/tasks/${act.id}`)
-  if (act.kind === 'scan')  router.push(`/scan?job_id=${act.id}`)
-}
-
 // ---- 自动刷新 ----
-const autoRefreshInterval = ref(0)
+const autoRefreshInterval = ref(30)
 let autoRefreshTimer = null
 
 function onRefreshChange(val) {
@@ -274,7 +415,10 @@ async function fetchData() {
   }
 }
 
-onMounted(fetchData)
+onMounted(() => {
+  fetchData()
+  autoRefreshTimer = setInterval(fetchData, 30 * 1000)
+})
 onUnmounted(() => { clearInterval(timer); clearInterval(autoRefreshTimer) })
 </script>
 
@@ -544,4 +688,21 @@ onUnmounted(() => { clearInterval(timer); clearInterval(autoRefreshTimer) })
 .leg-dot { width: 8px; height: 8px; border-radius: 2px; display: inline-block; margin-right: 3px; }
 .leg-completed { background: #10b981; }
 .leg-failed    { background: #f87171; }
+
+/* ── 弹窗：巡检分支结果 ── */
+.dlg-branch-item {
+  background: #fff; border: 1px solid #e2e8f0; border-radius: 8px;
+  margin-bottom: 10px; overflow: hidden;
+}
+.dlg-branch-header {
+  display: flex; align-items: center; gap: 10px;
+  padding: 9px 14px; background: #f8fafc; border-bottom: 1px solid #f1f5f9;
+}
+.dlg-branch-result {
+  padding: 10px 14px; font-size: 13px; color: #374151; line-height: 1.7;
+}
+.dlg-branch-result :deep(code) {
+  background: #f1f5f9; padding: 1px 5px; border-radius: 3px;
+  font-family: monospace; font-size: 12px;
+}
 </style>
