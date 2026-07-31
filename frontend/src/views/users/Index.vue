@@ -15,8 +15,25 @@
       </el-button>
     </div>
 
+    <div class="summary-row">
+      <div class="summary-card"><span>用户总数</span><strong>{{ users.length }}</strong></div>
+      <div class="summary-card admin"><span>管理员</span><strong>{{ adminCount }}</strong></div>
+      <div class="summary-card normal"><span>普通用户</span><strong>{{ normalCount }}</strong></div>
+    </div>
+
+    <div class="filter-bar">
+      <el-input v-model="keyword" placeholder="搜索用户名 / 邮箱 / 手机 / 岗位" clearable style="width: 320px" />
+      <el-select v-model="filterRole" placeholder="全部角色" clearable style="width: 150px">
+        <el-option label="超级管理员" value="super_admin" />
+        <el-option label="管理员" value="admin" />
+        <el-option label="普通用户" value="user" />
+      </el-select>
+      <el-button v-if="keyword || filterRole" text @click="keyword='';filterRole=''">清除</el-button>
+      <span class="filter-count">{{ filteredUsers.length }} 条</span>
+    </div>
+
     <div class="table-card" v-loading="loading">
-      <el-table :data="users" style="width:100%" row-class-name="table-row">
+      <el-table :data="filteredUsers" style="width:100%" row-class-name="table-row">
         <el-table-column label="用户名" min-width="130">
           <template #default="{ row }">
             <div class="user-cell">
@@ -44,8 +61,8 @@
         </el-table-column>
         <el-table-column label="操作" width="120" fixed="right">
           <template #default="{ row }">
-            <el-button link type="primary" size="small" @click="router.push(`/users/${row.id}/edit`)">编辑</el-button>
-            <el-button link type="danger" size="small" @click="handleDelete(row)">删除</el-button>
+            <el-button class="op-btn" type="primary" plain size="small" @click="router.push(`/users/${row.id}/edit`)">编辑</el-button>
+            <el-button class="op-btn" type="danger" plain size="small" @click="handleDelete(row)">删除</el-button>
           </template>
         </el-table-column>
       </el-table>
@@ -54,7 +71,7 @@
 </template>
 
 <script setup>
-import { ref, onMounted } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { UserFilled, Plus } from '@element-plus/icons-vue'
@@ -63,6 +80,17 @@ import { listUsers, deleteUser } from '../../api/users'
 const router = useRouter()
 const loading = ref(false)
 const users = ref([])
+const keyword = ref('')
+const filterRole = ref('')
+
+const adminCount = computed(() => users.value.filter(u => u.role === 'admin' || u.role === 'super_admin').length)
+const normalCount = computed(() => users.value.filter(u => u.role !== 'admin' && u.role !== 'super_admin').length)
+const filteredUsers = computed(() => users.value.filter(u => {
+  const q = keyword.value.trim().toLowerCase()
+  if (filterRole.value && u.role !== filterRole.value) return false
+  if (q && ![u.username, u.email, u.phone, u.position].some(v => String(v || '').toLowerCase().includes(q))) return false
+  return true
+}))
 
 onMounted(load)
 
@@ -130,11 +158,20 @@ function formatDate(s) {
   border: none !important;
 }
 
+.summary-row { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; margin-bottom: 14px; }
+.summary-card { background: #fff; border: 1px solid #e2e8f0; border-radius: 18px; padding: 14px 18px; display: flex; justify-content: space-between; align-items: center; box-shadow: var(--sh-card); }
+.summary-card span { color: #64748b; font-size: 13px; }
+.summary-card strong { color: #0f172a; font-size: 22px; }
+.summary-card.admin strong { color: #d97706; }
+.summary-card.normal strong { color: #2563eb; }
+.filter-bar { display: flex; align-items: center; gap: 10px; margin-bottom: 14px; background: #fff; border: 1px solid #e2e8f0; border-radius: 16px; padding: 12px 14px; box-shadow: var(--sh-card); }
+.filter-count { margin-left: auto; color: #94a3b8; font-size: 13px; }
 .table-card {
   background: #fff;
-  border-radius: 12px;
+  border-radius: 16px;
   border: 1px solid #e2e8f0;
   overflow: hidden;
+  box-shadow: var(--sh-card);
 }
 
 .user-cell { display: flex; align-items: center; gap: 10px; }

@@ -28,19 +28,19 @@ func NewScanHandler(svc *service.ScanService, settings *service.SettingsService,
 
 // scheduleResp 统一小写 JSON 响应结构
 type scheduleResp struct {
-	ID               int64   `json:"id"`
-	Name             string  `json:"name"`
-	RepoURL          string  `json:"repo_url"`
-	RepoCredentialID *int64  `json:"repo_credential_id"`
-	ModelConfigID    int64   `json:"model_config_id"`
-	ScanTime         string  `json:"scan_time"`
-	CustomPrompt     string  `json:"custom_prompt"`
-	NasURL           string  `json:"nas_url"`
-	NasUsername      string  `json:"nas_username"`
-	NasSubDir        string  `json:"nas_sub_dir"`
-	Enabled          bool    `json:"enabled"`
-	CreatedAt        string  `json:"created_at"`
-	UpdatedAt        string  `json:"updated_at"`
+	ID               int64  `json:"id"`
+	Name             string `json:"name"`
+	RepoURL          string `json:"repo_url"`
+	RepoCredentialID *int64 `json:"repo_credential_id"`
+	ModelConfigID    int64  `json:"model_config_id"`
+	ScanTime         string `json:"scan_time"`
+	CustomPrompt     string `json:"custom_prompt"`
+	NasURL           string `json:"nas_url"`
+	NasUsername      string `json:"nas_username"`
+	NasSubDir        string `json:"nas_sub_dir"`
+	Enabled          bool   `json:"enabled"`
+	CreatedAt        string `json:"created_at"`
+	UpdatedAt        string `json:"updated_at"`
 }
 
 func toScheduleResp(v *model.ScanSchedule) scheduleResp {
@@ -63,15 +63,16 @@ func toScheduleResp(v *model.ScanSchedule) scheduleResp {
 
 // jobResp 巡检执行记录
 type jobResp struct {
-	ID                 int64   `json:"id"`
-	ScheduleID         int64   `json:"schedule_id"`
-	Status             string  `json:"status"`
-	ErrorMessage       string  `json:"error_message"`
-	BranchCount        int     `json:"branch_count"`
-	ChangedBranchCount int     `json:"changed_branch_count"`
-	ReportPath         string  `json:"report_path"`
-	TriggeredAt        string  `json:"triggered_at"`
-	FinishedAt         string  `json:"finished_at"`
+	ID                 int64  `json:"id"`
+	ScheduleID         int64  `json:"schedule_id"`
+	Status             string `json:"status"`
+	ErrorMessage       string `json:"error_message"`
+	BranchCount        int    `json:"branch_count"`
+	ChangedBranchCount int    `json:"changed_branch_count"`
+	RiskCount          int    `json:"risk_count"`
+	ReportPath         string `json:"report_path"`
+	TriggeredAt        string `json:"triggered_at"`
+	FinishedAt         string `json:"finished_at"`
 }
 
 func toJobResp(j model.ScanJob) jobResp {
@@ -82,6 +83,7 @@ func toJobResp(j model.ScanJob) jobResp {
 		ErrorMessage:       j.ErrorMessage,
 		BranchCount:        j.BranchCount,
 		ChangedBranchCount: j.ChangedBranchCount,
+		RiskCount:          j.RiskCount,
 		ReportPath:         j.ReportPath,
 		TriggeredAt:        j.TriggeredAt.Format("2006-01-02 15:04:05"),
 	}
@@ -89,6 +91,25 @@ func toJobResp(j model.ScanJob) jobResp {
 		r.FinishedAt = j.FinishedAt.Format("2006-01-02 15:04:05")
 	}
 	return r
+}
+
+// jobLogResp 巡检执行日志
+type jobLogResp struct {
+	ID        int64  `json:"id"`
+	JobID     int64  `json:"job_id"`
+	Level     string `json:"level"`
+	Message   string `json:"message"`
+	CreatedAt string `json:"created_at"`
+}
+
+func toJobLogResp(log model.ScanJobLog) jobLogResp {
+	return jobLogResp{
+		ID:        log.ID,
+		JobID:     log.JobID,
+		Level:     string(log.Level),
+		Message:   log.Message,
+		CreatedAt: log.CreatedAt.Format("2006-01-02 15:04:05"),
+	}
 }
 
 // branchResultResp 分支分析结果
@@ -122,6 +143,20 @@ func toBranchResultResp(r model.ScanBranchResult) branchResultResp {
 		RiskLevel:      r.RiskLevel,
 		CreatedAt:      r.CreatedAt.Format("2006-01-02 15:04:05"),
 	}
+}
+
+func validateScanTime(scanTime string) error {
+	if strings.TrimSpace(scanTime) == "" {
+		return nil
+	}
+	if _, err := time.Parse("15:04", scanTime); err != nil {
+		return fmt.Errorf("scan_time 格式应为 HH:MM")
+	}
+	return nil
+}
+
+func validateNASURL(raw string) error {
+	return service.ValidateNASURL(raw)
 }
 
 // APIList GET /api/scan-schedules
@@ -184,6 +219,14 @@ func (h *ScanHandler) APICreate(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
+	if err := validateScanTime(req.ScanTime); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	if err := validateNASURL(req.NasURL); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
 	v := &model.ScanSchedule{
 		Name:             req.Name,
 		RepoURL:          req.RepoURL,
@@ -226,6 +269,14 @@ func (h *ScanHandler) APIUpdate(c *gin.Context) {
 		Enabled          bool   `json:"enabled"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	if err := validateScanTime(req.ScanTime); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	if err := validateNASURL(req.NasURL); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
@@ -306,18 +357,25 @@ func (h *ScanHandler) APIGetJob(c *gin.Context) {
 	for _, r := range results {
 		branchOut = append(branchOut, toBranchResultResp(r))
 	}
+	logs, _ := h.svc.ListJobLogs(id)
+	logOut := make([]jobLogResp, 0, len(logs))
+	for _, log := range logs {
+		logOut = append(logOut, toJobLogResp(log))
+	}
 	c.JSON(http.StatusOK, gin.H{
 		"job":     toJobResp(*job),
 		"results": branchOut,
+		"logs":    logOut,
 	})
 }
 
 // APITrigger POST /api/scan-schedules/:id/trigger
 func (h *ScanHandler) APITrigger(c *gin.Context) {
 	id, _ := strconv.ParseInt(c.Param("id"), 10, 64)
-	go func() {
-		_ = h.svc.RunSchedule(context.Background(), id)
-	}()
+	if err := h.svc.TriggerSchedule(context.Background(), id); err != nil {
+		c.JSON(http.StatusConflict, gin.H{"error": err.Error()})
+		return
+	}
 	c.JSON(http.StatusAccepted, gin.H{"message": "巡检任务已启动"})
 }
 
@@ -341,6 +399,10 @@ func (h *ScanHandler) APITestNas(c *gin.Context) {
 	}
 	if nasURL == "" {
 		c.JSON(http.StatusBadRequest, gin.H{"ok": false, "error": "NAS 地址不能为空"})
+		return
+	}
+	if err := validateNASURL(nasURL); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"ok": false, "error": err.Error()})
 		return
 	}
 	propfindReq, err := http.NewRequest("PROPFIND", strings.TrimRight(nasURL, "/")+"/", nil)

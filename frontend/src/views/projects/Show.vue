@@ -46,13 +46,21 @@
       <div class="header-actions hero-actions">
         <el-button @click="router.push(`/projects/${project.id}/edit`)">编辑</el-button>
         <el-button @click="router.push(`/projects/new?clone_from=${project.id}`)">克隆</el-button>
-        <el-button type="primary" @click="openTriggerDrawer">手动触发审核</el-button>
+        <el-button type="primary" @click="openTriggerDialog">手动触发审核</el-button>
         <el-button type="danger" plain @click="handleDelete">删除</el-button>
       </div>
       <div class="deco-circles">
         <div class="deco c1"></div>
         <div class="deco c2"></div>
       </div>
+    </div>
+
+    <!-- 信息概览 -->
+    <div class="summary-row">
+      <div class="summary-card"><span>模型</span><strong>{{ modelConfig?.name || '—' }}</strong></div>
+      <div class="summary-card"><span>任务数</span><strong>{{ tasks.length }}</strong></div>
+      <div class="summary-card"><span>最近 Commit</span><strong>{{ project.last_reviewed_commit ? project.last_reviewed_commit.slice(0, 7) : '暂无' }}</strong></div>
+      <div class="summary-card"><span>溢出策略</span><strong>{{ project.overflow_strategy === 'queue' ? '排队' : '拒绝' }}</strong></div>
     </div>
 
     <!-- 信息条 -->
@@ -113,14 +121,17 @@
       </el-table>
     </el-card>
 
-    <!-- 手动触发 Drawer -->
-    <el-drawer
-      v-model="triggerDrawerVisible"
+    <!-- 手动触发 Dialog -->
+    <el-dialog
+      v-model="triggerDialogVisible"
       title="手动触发审核"
-      direction="rtl"
-      size="420px"
+      width="680px"
+      class="trigger-dialog"
+      :close-on-click-modal="false"
+      destroy-on-close
+      align-center
     >
-      <div class="drawer-content">
+      <div class="drawer-content" v-loading="commitsLoading || skillsLoading">
         <p class="drawer-desc">选择本次审核的 Commit 范围：</p>
 
         <el-form label-position="top">
@@ -144,6 +155,17 @@
               />
             </el-select>
           </el-form-item>
+          <el-form-item v-if="allSkills.length" label="Review Skills">
+            <div class="skills-check-group">
+              <el-checkbox
+                v-for="skill in allSkills"
+                :key="skill.id"
+                :label="skill.name"
+                :model-value="triggerForm.skill_ids.includes(skill.id)"
+                @change="val => { if (val) { triggerForm.skill_ids.push(skill.id) } else { triggerForm.skill_ids = triggerForm.skill_ids.filter(id => id !== skill.id) } }"
+              >{{ skill.name }}</el-checkbox>
+            </div>
+          </el-form-item>
         </el-form>
 
         <div class="commit-list">
@@ -156,11 +178,11 @@
         </div>
 
         <div class="drawer-footer">
-          <el-button @click="triggerDrawerVisible = false">取消</el-button>
+          <el-button @click="triggerDialogVisible = false">取消</el-button>
           <el-button type="primary" @click="handleTrigger">触发审核</el-button>
         </div>
       </div>
-    </el-drawer>
+    </el-dialog>
   </div>
 </template>
 
@@ -168,7 +190,7 @@
 import { ref, computed, onMounted } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { ElMessageBox, ElMessage } from 'element-plus'
-import { getProject, triggerProject, initProject, deleteProject, getCommits } from '../../api/projects'
+import { getProject, triggerProject, initProject, deleteProject, getCommits, listReviewSkills, getProjectSkills } from '../../api/projects'
 
 const router = useRouter()
 const route = useRoute()
@@ -179,10 +201,12 @@ const project = ref({})
 const modelConfig = ref(null)
 const tasks = ref([])
 const commits = ref([])
-const triggerDrawerVisible = ref(false)
-const triggerForm = ref({ from_commit: '', to_commit: '' })
+const triggerDialogVisible = ref(false)
+const triggerForm = ref({ from_commit: '', to_commit: '', skill_ids: [] })
 const loading = ref(false)
 const commitsLoading = ref(false)
+const skillsLoading = ref(false)
+const allSkills = ref([])
 
 const webhookUrl = computed(() => `${window.location.origin}/webhook/${id}`)
 
@@ -205,16 +229,26 @@ onMounted(async () => {
   }
 })
 
-async function openTriggerDrawer() {
-  triggerDrawerVisible.value = true
+async function openTriggerDialog() {
+  triggerForm.value = { from_commit: '', to_commit: '', skill_ids: [] }
+  allSkills.value = []
+  triggerDialogVisible.value = true
   commitsLoading.value = true
+  skillsLoading.value = true
   try {
-    const res = await getCommits(id)
-    commits.value = res.data
+    const [commitsRes, skillsRes, projectSkillsRes] = await Promise.all([
+      getCommits(id),
+      listReviewSkills(),
+      getProjectSkills(id),
+    ])
+    commits.value = commitsRes.data
+    allSkills.value = (skillsRes.data || []).filter(s => s.enabled)
+    triggerForm.value.skill_ids = projectSkillsRes.data?.skill_ids || []
   } catch (err) {
-    ElMessage.error(err.response?.data?.message || '加载 Commit 列表失败')
+    ElMessage.error(err.response?.data?.message || '加载数据失败')
   } finally {
     commitsLoading.value = false
+    skillsLoading.value = false
   }
 }
 
@@ -272,12 +306,13 @@ async function handleTrigger() {
     const res = await triggerProject(id, {
       from_commit: triggerForm.value.from_commit,
       to_commit: triggerForm.value.to_commit,
+      skill_ids: triggerForm.value.skill_ids,
     })
     if (res.data.skipped) {
       ElMessage.warning('任务已在队列中')
     } else {
-      triggerDrawerVisible.value = false
-      triggerForm.value = { from_commit: '', to_commit: '' }
+      triggerDialogVisible.value = false
+      triggerForm.value = { from_commit: '', to_commit: '', skill_ids: [] }
       router.push('/tasks/' + res.data.task_id)
     }
   } catch (err) {
@@ -323,9 +358,13 @@ async function handleTrigger() {
 .c1 { width: 180px; height: 180px; right: -40px; top: -60px; }
 .c2 { width: 100px; height: 100px; right: 60px; bottom: -30px; }
 
-.info-card { margin-bottom: 16px; }
-.prompt-card { margin-bottom: 16px; }
-.table-card {}
+.summary-row { display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; margin: 0 0 16px; }
+.summary-card { background: #fff; border: 1px solid #e2e8f0; border-radius: 18px; padding: 14px 18px; display: flex; justify-content: space-between; align-items: center; box-shadow: var(--sh-card); }
+.summary-card span { color: #64748b; font-size: 13px; }
+.summary-card strong { color: #0f172a; font-size: 18px; max-width: 62%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.info-card { margin-bottom: 16px; border-radius: 16px; }
+.prompt-card { margin-bottom: 16px; border-radius: 16px; }
+.table-card { border-radius: 16px; overflow: hidden; }
 
 .prompt-content {
   margin: 0; font-size: 13px; color: #475569;
@@ -357,7 +396,7 @@ async function handleTrigger() {
   background: #eff6ff; padding: 2px 8px; border-radius: 5px; word-break: break-all;
 }
 
-/* Drawer */
+/* Dialog */
 .drawer-content { padding: 0 4px; }
 .drawer-desc { margin: 0 0 16px; color: #64748b; font-size: 14px; }
 
@@ -372,4 +411,7 @@ async function handleTrigger() {
 .commit-author { color: #94a3b8; font-size: 12px; }
 
 .drawer-footer { display: flex; justify-content: flex-end; gap: 10px; margin-top: 24px; padding-top: 16px; border-top: 1px solid #f1f5f9; }
+.skills-check-group { display: flex; flex-wrap: wrap; gap: 10px 20px; }
+:deep(.trigger-dialog .el-dialog) { border-radius: 22px !important; overflow: hidden; }
+:deep(.trigger-dialog .el-dialog__body) { background: #f8fafc; }
 </style>

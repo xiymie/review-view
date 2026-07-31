@@ -69,3 +69,33 @@ func (s *ProjectStore) ListCronEnabled() ([]*model.Project, error) {
 func (s *ProjectStore) UpdateNextRunAt(id int64, t *time.Time) error {
 	return s.db.Model(&model.Project{}).Where("id = ?", id).Update("next_run_at", t).Error
 }
+
+// SetSkills 替换项目关联的 ReviewSkill ID 列表，在同一事务内完成删旧插新。
+func (s *ProjectStore) SetSkills(projectID int64, skillIDs []int64) error {
+	return s.db.Transaction(func(tx *gorm.DB) error {
+		if err := tx.Where("project_id = ?", projectID).Delete(&model.ProjectReviewSkill{}).Error; err != nil {
+			return err
+		}
+		if len(skillIDs) == 0 {
+			return nil
+		}
+		rows := make([]model.ProjectReviewSkill, 0, len(skillIDs))
+		for _, sid := range skillIDs {
+			rows = append(rows, model.ProjectReviewSkill{ProjectID: projectID, ReviewSkillID: sid})
+		}
+		return tx.Create(&rows).Error
+	})
+}
+
+// ListSkillIDs 返回项目已选的 ReviewSkill ID 列表。
+func (s *ProjectStore) ListSkillIDs(projectID int64) ([]int64, error) {
+	var rows []model.ProjectReviewSkill
+	if err := s.db.Where("project_id = ?", projectID).Find(&rows).Error; err != nil {
+		return nil, err
+	}
+	ids := make([]int64, 0, len(rows))
+	for _, r := range rows {
+		ids = append(ids, r.ReviewSkillID)
+	}
+	return ids, nil
+}

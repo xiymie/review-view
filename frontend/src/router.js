@@ -16,6 +16,7 @@ import TasksIndex from './views/tasks/Index.vue'
 import TasksShow from './views/tasks/Show.vue'
 import Settings from './views/Settings.vue'
 import SensitiveWordsIndex from './views/sensitive-words/Index.vue'
+import ReviewSkillsIndex from './views/review-skills/Index.vue'
 import UsersIndex from './views/users/Index.vue'
 import UsersNew from './views/users/New.vue'
 import UsersEdit from './views/users/Edit.vue'
@@ -51,6 +52,7 @@ const router = createRouter({
         { path: 'credentials/new',         component: CredentialsNew },
         { path: 'credentials/:id/edit',    component: CredentialsEdit },
         { path: 'sensitive-words',         component: SensitiveWordsIndex,  meta: { adminOnly: true } },
+        { path: 'review-skills',           component: ReviewSkillsIndex,    meta: { adminOnly: true } },
         { path: 'docs',                    component: Docs },
         { path: 'settings',                component: Settings,             meta: { adminOnly: true } },
         { path: 'users',                   component: UsersIndex,           meta: { adminOnly: true } },

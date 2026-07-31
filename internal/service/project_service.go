@@ -13,17 +13,17 @@ import (
 )
 
 type ProjectCreateInput struct {
-	Name              string
-	RepoURL           string
-	Branch            string
-	ModelConfigID     int64
-	CustomPrompt      string
-	OverflowStrategy  model.OverflowStrategy
-	TaskTimeout       *int
-	RepoCredentialID  *int64
-	CronExpression    string
-	CronEnabled       bool
-	CreatedBy         int64
+	Name             string
+	RepoURL          string
+	Branch           string
+	ModelConfigID    int64
+	CustomPrompt     string
+	OverflowStrategy model.OverflowStrategy
+	TaskTimeout      *int
+	RepoCredentialID *int64
+	CronExpression   string
+	CronEnabled      bool
+	CreatedBy        int64
 }
 
 type ProjectService struct {
@@ -67,19 +67,19 @@ func (s *ProjectService) Create(input ProjectCreateInput) (*model.Project, error
 	}
 
 	project := &model.Project{
-		Name:              input.Name,
-		RepoURL:           input.RepoURL,
-		Branch:            input.Branch,
-		ModelConfigID:     input.ModelConfigID,
-		CustomPrompt:      input.CustomPrompt,
-		OverflowStrategy:  input.OverflowStrategy,
-		TaskTimeout:       input.TaskTimeout,
-		RepoCredentialID:  input.RepoCredentialID,
-		CronExpression:    input.CronExpression,
-		CronEnabled:       input.CronEnabled,
-		NextRunAt:         nextRunAt,
-		Status:            model.ProjectStatusInitializing,
-		CreatedBy:         input.CreatedBy,
+		Name:             input.Name,
+		RepoURL:          input.RepoURL,
+		Branch:           input.Branch,
+		ModelConfigID:    input.ModelConfigID,
+		CustomPrompt:     input.CustomPrompt,
+		OverflowStrategy: input.OverflowStrategy,
+		TaskTimeout:      input.TaskTimeout,
+		RepoCredentialID: input.RepoCredentialID,
+		CronExpression:   input.CronExpression,
+		CronEnabled:      input.CronEnabled,
+		NextRunAt:        nextRunAt,
+		Status:           model.ProjectStatusInitializing,
+		CreatedBy:        input.CreatedBy,
 	}
 	if err := s.projects.Create(project); err != nil {
 		return nil, err
@@ -213,6 +213,19 @@ func computeNextRunAt(expr string, enabled bool) (*time.Time, error) {
 	}
 	t := sched.Next(time.Now())
 	return &t, nil
+}
+
+// SetSkills 替换项目绑定的 ReviewSkill ID 列表。
+func (s *ProjectService) SetSkills(projectID int64, skillIDs []int64) error {
+	if _, err := s.projects.GetByID(projectID); err != nil {
+		return err
+	}
+	return s.projects.SetSkills(projectID, skillIDs)
+}
+
+// ListSkillIDs 返回项目已选的 ReviewSkill ID 列表。
+func (s *ProjectService) ListSkillIDs(projectID int64) ([]int64, error) {
+	return s.projects.ListSkillIDs(projectID)
 }
 
 // UpdateSchedule 仅更新项目的 cron 配置字段

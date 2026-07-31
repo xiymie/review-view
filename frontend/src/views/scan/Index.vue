@@ -2,7 +2,11 @@
   <div class="page">
     <!-- Hero -->
     <div class="hero">
+      <div class="bubble bubble-a"></div>
+      <div class="bubble bubble-b"></div>
+      <div class="bubble bubble-c"></div>
       <div class="hero-content">
+        <div class="eyebrow">Scan Workflow</div>
         <div class="hero-title">巡检配置</div>
         <div class="hero-subtitle">定时扫描仓库所有活跃分支，自动分析每日 commit 风险并上传报告到 NAS</div>
       </div>
@@ -93,90 +97,98 @@
       />
     </el-drawer>
 
-    <!-- 新建/编辑 drawer -->
-    <el-drawer
+    <!-- 新建/编辑弹窗 -->
+    <el-dialog
       v-model="formDrawerVisible"
       :title="editingItem ? '编辑巡检配置' : '新建巡检配置'"
-      direction="rtl"
-      size="520px"
+      width="760px"
+      class="scan-form-dialog"
       :close-on-click-modal="false"
+      destroy-on-close
+      align-center
     >
       <div class="form-body" v-if="formDrawerVisible">
         <el-form :model="form" label-position="top" ref="formRef">
-          <el-form-item label="名称" required>
-            <el-input v-model="form.name" placeholder="例：后端主仓库巡检" />
-          </el-form-item>
+          <div class="form-section">
+            <div class="section-title">基础信息</div>
+            <div class="form-grid two">
+              <el-form-item label="名称" required>
+                <el-input v-model="form.name" placeholder="例：后端主仓库巡检" />
+              </el-form-item>
 
-          <el-form-item label="仓库地址" required>
-            <el-input v-model="form.repo_url" placeholder="https://github.com/org/repo.git" />
-          </el-form-item>
+              <el-form-item label="巡检时间">
+                <el-input v-model="form.scan_time" placeholder="留空使用全局默认，格式 HH:MM，如 09:00" />
+              </el-form-item>
+            </div>
 
-          <el-form-item label="仓库凭据">
-            <el-select v-model="form.repo_credential_id" placeholder="无（公开仓库）" clearable style="width:100%">
-              <el-option
-                v-for="c in credentials"
-                :key="c.id"
-                :label="c.name"
-                :value="c.id"
+            <el-form-item label="仓库地址" required>
+              <el-input v-model="form.repo_url" placeholder="https://github.com/org/repo.git" />
+            </el-form-item>
+
+            <div class="form-grid two">
+              <el-form-item label="仓库凭据">
+                <el-select v-model="form.repo_credential_id" placeholder="无（公开仓库）" clearable style="width:100%">
+                  <el-option
+                    v-for="c in credentials"
+                    :key="c.id"
+                    :label="c.name"
+                    :value="c.id"
+                  />
+                </el-select>
+              </el-form-item>
+
+              <el-form-item label="模型配置" required>
+                <el-select v-model="form.model_config_id" placeholder="请选择" style="width:100%">
+                  <el-option
+                    v-for="m in models"
+                    :key="m.id"
+                    :label="m.name"
+                    :value="m.id"
+                  />
+                </el-select>
+              </el-form-item>
+            </div>
+
+            <el-form-item label="自定义提示词">
+              <el-input
+                v-model="form.custom_prompt"
+                type="textarea"
+                :rows="4"
+                placeholder="留空使用全局默认提示词"
               />
-            </el-select>
-          </el-form-item>
+            </el-form-item>
+          </div>
 
-          <el-form-item label="模型配置" required>
-            <el-select v-model="form.model_config_id" placeholder="请选择" style="width:100%">
-              <el-option
-                v-for="m in models"
-                :key="m.id"
-                :label="m.name"
-                :value="m.id"
-              />
-            </el-select>
-          </el-form-item>
-
-          <el-form-item label="巡检时间">
-            <el-input v-model="form.scan_time" placeholder="留空使用全局默认，格式 HH:MM，如 09:00" />
-          </el-form-item>
-
-          <el-form-item label="自定义提示词">
-            <el-input
-              v-model="form.custom_prompt"
-              type="textarea"
-              :rows="4"
-              placeholder="留空使用全局默认提示词"
-            />
-          </el-form-item>
-
-          <el-divider>NAS 配置（留空使用全局默认）</el-divider>
-
-          <el-form-item label="WebDAV 地址">
-            <el-input v-model="form.nas_url" placeholder="http://192.168.1.57:5005" />
-          </el-form-item>
-
-          <el-form-item label="NAS 用户名">
-            <el-input v-model="form.nas_username" />
-          </el-form-item>
-
-          <el-form-item label="NAS 密码">
-            <el-input v-model="form.nas_password" type="password" show-password placeholder="编辑时留空不修改" />
-          </el-form-item>
-
-          <el-form-item label="上传子目录">
-            <el-input v-model="form.nas_sub_dir" placeholder="留空使用仓库名" />
-          </el-form-item>
-
-          <!-- 测试 NAS 连接 -->
-          <el-form-item label="测试 NAS 连接">
+          <div class="form-section muted-section">
+            <div class="section-title">NAS 配置</div>
+            <div class="section-hint">留空则使用全局默认。密码编辑时留空表示不修改。</div>
+            <el-form-item label="WebDAV 地址">
+              <el-input v-model="form.nas_url" placeholder="http://192.168.1.57:5005" />
+            </el-form-item>
+            <div class="form-grid two">
+              <el-form-item label="NAS 用户名">
+                <el-input v-model="form.nas_username" />
+              </el-form-item>
+              <el-form-item label="NAS 密码">
+                <el-input v-model="form.nas_password" type="password" show-password placeholder="编辑时留空不修改" />
+              </el-form-item>
+            </div>
+            <el-form-item label="上传子目录">
+              <el-input v-model="form.nas_sub_dir" placeholder="留空使用仓库名" />
+            </el-form-item>
             <div class="nas-test-row">
-              <el-button size="small" :loading="testingNas" @click="handleTestNas">测试连接</el-button>
+              <el-button size="small" :loading="testingNas" @click="handleTestNas">测试 NAS 连接</el-button>
               <span v-if="nasTestResult" :class="['nas-test-result', nasTestResult.ok ? 'ok' : 'fail']">
                 {{ nasTestResult.ok ? '✓ ' + nasTestResult.message : '✗ ' + nasTestResult.error }}
               </span>
             </div>
-          </el-form-item>
+          </div>
 
-          <el-form-item label="状态">
-            <el-switch v-model="form.enabled" active-text="启用" inactive-text="停用" />
-          </el-form-item>
+          <div class="form-section compact-section">
+            <el-form-item label="状态">
+              <el-switch v-model="form.enabled" active-text="启用" inactive-text="停用" />
+            </el-form-item>
+          </div>
         </el-form>
       </div>
 
@@ -186,7 +198,7 @@
           <el-button type="primary" :loading="saving" @click="save">保存</el-button>
         </div>
       </template>
-    </el-drawer>
+    </el-dialog>
   </div>
 </template>
 
@@ -446,24 +458,35 @@ onUnmounted(stopPolling)
 </script>
 
 <style scoped>
-.page { min-height: 100vh; background: #f8fafc; }
+.page { min-height: 100vh; background: radial-gradient(circle at 14% 8%, rgba(59,130,246,0.10), transparent 28%), radial-gradient(circle at 84% 18%, rgba(124,58,237,0.10), transparent 26%), #f5f7fb; }
 
 /* Hero */
 .hero {
-  background: linear-gradient(135deg, #7c3aed 0%, #2563eb 100%);
-  padding: 28px 36px 24px;
+  position: relative;
+  background: linear-gradient(135deg, #0f172a 0%, #1e40af 52%, #7c3aed 100%);
+  padding: 30px 36px 28px;
   display: flex; align-items: center; justify-content: space-between;
+  overflow: hidden;
 }
-.hero-title { font-size: 22px; font-weight: 700; color: #fff; margin-bottom: 4px; }
-.hero-subtitle { font-size: 13px; color: rgba(255,255,255,0.75); }
+.hero-content { position: relative; z-index: 2; }
+.eyebrow { color: rgba(255,255,255,0.62); font-size: 12px; font-weight: 700; letter-spacing: .14em; text-transform: uppercase; margin-bottom: 6px; }
+.hero-title { font-size: 24px; font-weight: 750; color: #fff; margin-bottom: 5px; letter-spacing: -0.45px; }
+.hero-subtitle { font-size: 13px; color: rgba(255,255,255,0.76); }
+.bubble { position: absolute; border-radius: 999px; background: rgba(255,255,255,0.12); filter: blur(.1px); pointer-events: none; }
+.bubble-a { width: 220px; height: 220px; right: -52px; top: -78px; }
+.bubble-b { width: 118px; height: 118px; right: 180px; bottom: -54px; background: rgba(255,255,255,0.08); }
+.bubble-c { width: 54px; height: 54px; left: 42%; top: 18px; background: rgba(255,255,255,0.10); }
 .new-btn {
-  background: rgba(255,255,255,0.15);
-  border: 1px solid rgba(255,255,255,0.3);
+  position: relative;
+  z-index: 2;
+  background: rgba(255,255,255,0.18);
+  border: 1px solid rgba(255,255,255,0.34);
   color: #fff;
+  box-shadow: 0 10px 28px rgba(15,23,42,0.18);
 }
 .new-btn:hover {
-  background: rgba(255,255,255,0.25);
-  border-color: rgba(255,255,255,0.5);
+  background: rgba(255,255,255,0.27);
+  border-color: rgba(255,255,255,0.55);
   color: #fff;
 }
 
@@ -627,11 +650,21 @@ onUnmounted(stopPolling)
 .danger-item { color: #dc2626 !important; }
 .danger-item:hover { background: #fef2f2 !important; }
 
-/* Form / Drawer */
-.form-body { padding: 8px 4px; }
+/* Form / Dialog */
+.form-body { max-height: 68vh; overflow-y: auto; padding: 2px 4px 0; }
 .drawer-footer { display: flex; justify-content: flex-end; gap: 8px; }
+.form-section { background: #fff; border: 1px solid #e5e7eb; border-radius: 14px; padding: 16px 16px 10px; margin-bottom: 14px; }
+.muted-section { background: linear-gradient(180deg, #fff, #f8fafc); }
+.compact-section { padding-bottom: 0; }
+.section-title { font-size: 14px; font-weight: 750; color: #0f172a; margin-bottom: 4px; letter-spacing: -0.2px; }
+.section-hint { font-size: 12px; color: #94a3b8; margin-bottom: 12px; }
+.form-grid.two { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
 .nas-test-row { display: flex; align-items: center; gap: 10px; }
 .nas-test-result { font-size: 13px; }
 .nas-test-result.ok   { color: #16a34a; }
 .nas-test-result.fail { color: #dc2626; }
+:deep(.scan-form-dialog .el-dialog) { border-radius: 22px !important; overflow: hidden; }
+:deep(.scan-form-dialog .el-dialog__header) { padding: 20px 24px 12px; }
+:deep(.scan-form-dialog .el-dialog__body) { padding: 10px 24px 4px; background: #f8fafc; }
+:deep(.scan-form-dialog .el-dialog__footer) { padding: 14px 24px 20px; background: #f8fafc; }
 </style>

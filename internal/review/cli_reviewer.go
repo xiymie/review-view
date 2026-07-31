@@ -125,8 +125,8 @@ type cliUserMessage struct {
 	Type    string `json:"type"`
 	Message struct {
 		Content []struct {
-			Type      string `json:"type"`
-			Content   string `json:"content"`
+			Type    string `json:"type"`
+			Content string `json:"content"`
 		} `json:"content"`
 	} `json:"message"`
 }
@@ -150,7 +150,7 @@ func extractStreamText(line []byte) string {
 	return strings.Join(texts, "")
 }
 
-const maxToolResultLogLen = 500
+const maxToolResultLogLen = 12 * 1024
 
 // extractToolUseLog 从单行 stream-json 中提取 tool_use 信息，格式化为可读日志。
 // 返回空字符串表示无 tool_use 内容。
@@ -261,7 +261,11 @@ func (r *CLIReviewer) Review(ctx context.Context, params ReviewParams) (*ReviewR
 		extra.CLIPath = "claude"
 	}
 
-	args := []string{"-p", params.Prompt, "--output-format", "stream-json"}
+	prompt := params.Prompt
+	if params.Replace != nil {
+		prompt = params.Replace(prompt)
+	}
+	args := []string{"-p", prompt, "--output-format", "stream-json"}
 	if extra.MaxTurns > 0 {
 		args = append(args, "--max-turns", fmt.Sprintf("%d", extra.MaxTurns))
 	}
@@ -277,12 +281,21 @@ func (r *CLIReviewer) Review(ctx context.Context, params ReviewParams) (*ReviewR
 	if sc, ok := r.commander.(StreamCommander); ok && params.OnChunk != nil {
 		output, err = sc.RunStream(ctx, params.WorkDir, env, func(line []byte) {
 			if text := extractStreamText(line); text != "" {
+				if params.Restore != nil {
+					text = params.Restore(text)
+				}
 				params.OnChunk(text)
 			}
 			if msg := extractToolUseLog(line); msg != "" {
+				if params.Replace != nil {
+					msg = params.Replace(msg)
+				}
 				onLog(params.OnLog, "info", msg)
 			}
 			if msg := extractToolResultLog(line); msg != "" {
+				if params.Replace != nil {
+					msg = params.Replace(msg)
+				}
 				onLog(params.OnLog, "info", msg)
 			}
 		}, extra.CLIPath, args...)
@@ -298,11 +311,19 @@ func (r *CLIReviewer) Review(ctx context.Context, params ReviewParams) (*ReviewR
 		return nil, err
 	}
 	if response.IsError {
-		return nil, fmt.Errorf("cli review failed: %s", response.Result)
+		result := response.Result
+		if params.Restore != nil {
+			result = params.Restore(result)
+		}
+		return nil, fmt.Errorf("cli review failed: %s", result)
+	}
+	content := response.Result
+	if params.Restore != nil {
+		content = params.Restore(content)
 	}
 
 	return &ReviewResult{
-		Content:             response.Result,
+		Content:             content,
 		InputTokens:         response.Usage.InputTokens,
 		OutputTokens:        response.Usage.OutputTokens,
 		CacheCreationTokens: response.Usage.CacheCreationInputTokens,

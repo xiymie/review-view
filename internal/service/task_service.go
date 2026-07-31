@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"time"
 
@@ -14,7 +15,8 @@ type TriggerInput struct {
 	ProjectID    int64
 	TriggeredBy  model.TaskTriggeredBy
 	TargetCommit string
-	FromCommit   string // 手动指定起始 commit（为空则使用 LastReviewedCommit）
+	FromCommit   string  // 手动指定起始 commit（为空则使用 LastReviewedCommit）
+	SkillIDs     []int64 // 本次触发选择的 ReviewSkill ID 列表（可为空）
 }
 
 type TaskService struct {
@@ -79,13 +81,14 @@ func (s *TaskService) Trigger(ctx context.Context, input TriggerInput) (*model.T
 		if s.shouldSkipUnchanged(input.TriggeredBy) {
 			finishedAt := time.Now()
 			skippedTask := &model.Task{
-				ProjectID:    project.ID,
-				Status:       model.TaskStatusSkipped,
-				FromCommit:   fromCommit,
-				ToCommit:     toCommit,
-				TriggeredBy:  input.TriggeredBy,
-				ErrorMessage: "代码无新提交，跳过本次扫描",
-				FinishedAt:   &finishedAt,
+				ProjectID:      project.ID,
+				Status:         model.TaskStatusSkipped,
+				FromCommit:     fromCommit,
+				ToCommit:       toCommit,
+				TriggeredBy:    input.TriggeredBy,
+				ErrorMessage:   "代码无新提交，跳过本次扫描",
+				ReviewSkillIDs: encodeSkillIDs(input.SkillIDs),
+				FinishedAt:     &finishedAt,
 			}
 			if err := s.tasks.Create(skippedTask); err != nil {
 				return nil, false, err
@@ -113,11 +116,12 @@ func (s *TaskService) Trigger(ctx context.Context, input TriggerInput) (*model.T
 	}
 
 	task := &model.Task{
-		ProjectID:   project.ID,
-		Status:      model.TaskStatusPending,
-		FromCommit:  fromCommit,
-		ToCommit:    toCommit,
-		TriggeredBy: input.TriggeredBy,
+		ProjectID:      project.ID,
+		Status:         model.TaskStatusPending,
+		FromCommit:     fromCommit,
+		ToCommit:       toCommit,
+		TriggeredBy:    input.TriggeredBy,
+		ReviewSkillIDs: encodeSkillIDs(input.SkillIDs),
 	}
 	if err := s.populateTaskChanges(ctx, repoDir, task); err != nil {
 		return nil, false, err
@@ -164,11 +168,12 @@ func (s *TaskService) Retry(ctx context.Context, taskID int64) (*model.Task, err
 	}
 
 	retryTask := &model.Task{
-		ProjectID:   task.ProjectID,
-		Status:      model.TaskStatusPending,
-		FromCommit:  task.FromCommit,
-		ToCommit:    task.ToCommit,
-		TriggeredBy: model.TaskTriggeredByManual,
+		ProjectID:      task.ProjectID,
+		Status:         model.TaskStatusPending,
+		FromCommit:     task.FromCommit,
+		ToCommit:       task.ToCommit,
+		TriggeredBy:    model.TaskTriggeredByManual,
+		ReviewSkillIDs: task.ReviewSkillIDs, // preserve skill selection from original task
 	}
 	if err := s.populateTaskChanges(ctx, repoDir, retryTask); err != nil {
 		return nil, err
@@ -211,6 +216,27 @@ func (s *TaskService) shouldSkipUnchanged(triggeredBy model.TaskTriggeredBy) boo
 	}
 	// manual / webhook
 	return !cfg.ManualScanUnchanged
+}
+
+// encodeSkillIDs serialises a []int64 to a compact JSON string for Task.ReviewSkillIDs.
+// A nil/empty slice produces an empty string (no storage overhead for the common case).
+func encodeSkillIDs(ids []int64) string {
+	if len(ids) == 0 {
+		return ""
+	}
+	b, _ := json.Marshal(ids)
+	return string(b)
+}
+
+func decodeReviewSkillIDs(raw string) []int64 {
+	if raw == "" {
+		return nil
+	}
+	var ids []int64
+	if err := json.Unmarshal([]byte(raw), &ids); err != nil {
+		return nil
+	}
+	return ids
 }
 
 func (s *TaskService) populateTaskChanges(ctx context.Context, repoDir string, task *model.Task) error {

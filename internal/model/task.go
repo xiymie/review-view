@@ -20,11 +20,11 @@ const (
 )
 
 type Task struct {
-	ID                  int64           `gorm:"primaryKey"`
-	ProjectID           int64           `gorm:"not null;index"`
-	Status              TaskStatus      `gorm:"not null;index"`
+	ID                  int64      `gorm:"primaryKey"`
+	ProjectID           int64      `gorm:"not null;index"`
+	Status              TaskStatus `gorm:"not null;index"`
 	FromCommit          string
-	ToCommit            string          `gorm:"not null;index"`
+	ToCommit            string `gorm:"not null;index"`
 	FromSubject         string // from_commit 的提交说明（区间起点；from 为空时为空）
 	ToSubject           string // to_commit 的提交说明（区间终点）
 	DiffContent         string
@@ -32,6 +32,7 @@ type Task struct {
 	Result              string
 	ErrorMessage        string
 	TriggeredBy         TaskTriggeredBy `gorm:"not null"`
+	ReviewSkillIDs      string          // JSON-encoded []int64 of selected review skill IDs
 	InputTokens         int64
 	OutputTokens        int64
 	CacheCreationTokens int64

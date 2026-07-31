@@ -15,12 +15,12 @@ type Settings struct {
 	ScheduledScanUnchanged bool
 	ManualScanUnchanged    bool
 	// 巡检全局配置
-	ScanDefaultTime    string
-	ScanDefaultPrompt  string
-	ScanNasURL         string
-	ScanNasUsername    string
-	ScanNasPassword    string
-	ScanRetainDays     int // 0=永久保留
+	ScanDefaultTime   string
+	ScanDefaultPrompt string
+	ScanNasURL        string
+	ScanNasUsername   string
+	ScanNasPassword   string
+	ScanRetainDays    int // 0=永久保留
 }
 
 type SettingsInput struct {
@@ -64,6 +64,7 @@ func (s *SettingsService) Get() (*Settings, error) {
 		RepoBaseDir:            "./repos",
 		ScheduledScanUnchanged: false,
 		ManualScanUnchanged:    true,
+		ScanDefaultPrompt:      model.DefaultScanPrompt,
 	}
 	for _, item := range values {
 		switch item.Key {

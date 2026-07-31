@@ -3,10 +3,10 @@ package gormstore
 import (
 	"testing"
 
-	"review-view/internal/model"
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
 	"gorm.io/gorm/logger"
+	"review-view/internal/model"
 )
 
 type Stores struct {
@@ -19,6 +19,7 @@ type Stores struct {
 	Users          *UserStore
 	ScanSchedules  *ScanScheduleStore
 	ScanJobs       *ScanJobStore
+	ReviewSkills   *ReviewSkillStore
 }
 
 func Open(dsn string) (*gorm.DB, error) {
@@ -28,7 +29,7 @@ func Open(dsn string) (*gorm.DB, error) {
 	if err != nil {
 		return nil, err
 	}
-	if err := db.AutoMigrate(&model.Project{}, &model.ModelConfig{}, &model.Task{}, &model.TaskLog{}, &model.GlobalConfig{}, &model.RepoCredential{}, &model.SensitiveWord{}, &model.User{}, &model.ScanSchedule{}, &model.ScanJob{}, &model.ScanBranchResult{}); err != nil {
+	if err := db.AutoMigrate(&model.Project{}, &model.ModelConfig{}, &model.Task{}, &model.TaskLog{}, &model.GlobalConfig{}, &model.RepoCredential{}, &model.SensitiveWord{}, &model.User{}, &model.ScanSchedule{}, &model.ScanJob{}, &model.ScanJobLog{}, &model.ScanBranchResult{}, &model.ReviewSkill{}, &model.ProjectReviewSkill{}); err != nil {
 		return nil, err
 	}
 	return db, nil
@@ -45,6 +46,7 @@ func New(db *gorm.DB) Stores {
 		Users:          &UserStore{db: db},
 		ScanSchedules:  &ScanScheduleStore{db: db},
 		ScanJobs:       &ScanJobStore{db: db},
+		ReviewSkills:   &ReviewSkillStore{db: db},
 	}
 }
 

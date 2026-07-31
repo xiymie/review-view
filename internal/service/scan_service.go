@@ -5,13 +5,16 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
+	"net/netip"
 	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	anyllm "github.com/mozilla-ai/any-llm-go"
@@ -20,43 +23,14 @@ import (
 	"review-view/internal/store"
 )
 
-const defaultScanPrompt = `仓库 %s，分支 %s，日期 %s，共 %d 个提交：
-
-%s
-
-以下是本次变更的代码 diff：
-
-%s
-
-请结合 commit 信息和代码变更完成以下两项分析：
-
-**一、风险识别**
-识别以下类型的风险（有则列出，无则不提）：
-- DB：数据库结构变更（建表/删表/加减字段/索引）
-- DEP：依赖版本升级（可能引入 breaking change）
-- CFG：配置变更（环境变量/密钥/服务地址/端口）
-- BIZ：核心业务逻辑改动（支付/权限/核心流程）
-- SEC：安全相关（认证/鉴权/加密/敏感数据）
-
-**二、逻辑漏洞检查**
-仅关注逻辑层面的问题，忽略语法错误，检查：
-- 边界条件未处理（空值/零值/越界）
-- 并发/竞态条件
-- 错误处理缺失或忽略错误返回值
-- 条件判断不严谨导致意外分支
-- 数据流中的遗漏校验或状态不一致
-
-**输出格式：**
-**风险等级**：无风险 / 低风险 / 中风险 / 高风险
-**命中风险类型**：（命中的标签，无则填"—"）
-**风险说明**：（简要说明触发原因）
-**逻辑漏洞**：（列出发现的逻辑问题；若无则填"未发现"）`
+const defaultScanPrompt = model.DefaultScanPrompt
 
 // ScanConfig 一次巡检所需的完整配置（由 schedule + 全局配置合并而来）
 type ScanConfig struct {
 	RepoURL     string
 	Cred        *model.RepoCredential
 	ModelConfig *model.ModelConfig
+	SkillPrompt string
 	Prompt      string
 	NasURL      string
 	NasUsername string
@@ -64,13 +38,37 @@ type ScanConfig struct {
 	NasSubDir   string
 }
 
+type scanLLMCaller func(ctx context.Context, mc *model.ModelConfig, prompt string) (string, error)
+type scanDiffLoader func(ctx context.Context, repoDir, branch, fromCommit string) (string, error)
+type scanRepoPreparer func(ctx context.Context, repoDir string, cfg *ScanConfig) error
+type scanBranchLister func(ctx context.Context, repoDir string) ([]string, error)
+type scanBranchHeadGetter func(ctx context.Context, repoDir, branch string) (string, error)
+type scanRecentCommitsGetter func(ctx context.Context, repoDir, branch string, n int) ([]commitEntry, error)
+type scanCommitsBetweenGetter func(ctx context.Context, repoDir, branch, fromCommit, headCommit string) ([]commitEntry, error)
+type scanReportUploader func(cfg *ScanConfig, name, content string) (string, error)
+type scanOldReportsCleaner func(ctx context.Context, scheduleID int64, cfg *ScanConfig)
+
 type ScanService struct {
-	schedules store.ScanScheduleStore
-	jobs      store.ScanJobStore
-	models    store.ModelConfigStore
-	creds     store.RepoCredentialStore
-	settings  *SettingsService
-	repoMgr   *review.RepositoryManager
+	schedules            store.ScanScheduleStore
+	jobs                 store.ScanJobStore
+	models               store.ModelConfigStore
+	creds                store.RepoCredentialStore
+	settings             *SettingsService
+	repoMgr              *review.RepositoryManager
+	projectStore         store.ProjectStore
+	reviewSkills         *ReviewSkillService
+	sensitiveWords       *SensitiveWordService
+	llmCaller            scanLLMCaller
+	diffLoader           scanDiffLoader
+	repoPreparer         scanRepoPreparer
+	branchLister         scanBranchLister
+	branchHeadGetter     scanBranchHeadGetter
+	recentCommitsGetter  scanRecentCommitsGetter
+	commitsBetweenGetter scanCommitsBetweenGetter
+	reportUploader       scanReportUploader
+	oldReportsCleaner    scanOldReportsCleaner
+	runningMu            sync.Mutex
+	runningSchedules     map[int64]struct{}
 }
 
 func NewScanService(
@@ -80,15 +78,28 @@ func NewScanService(
 	creds store.RepoCredentialStore,
 	settings *SettingsService,
 	repoMgr *review.RepositoryManager,
+	extra ...any,
 ) *ScanService {
-	return &ScanService{
-		schedules: schedules,
-		jobs:      jobs,
-		models:    models,
-		creds:     creds,
-		settings:  settings,
-		repoMgr:   repoMgr,
+	s := &ScanService{
+		schedules:        schedules,
+		jobs:             jobs,
+		models:           models,
+		creds:            creds,
+		settings:         settings,
+		repoMgr:          repoMgr,
+		runningSchedules: make(map[int64]struct{}),
 	}
+	for _, item := range extra {
+		switch v := item.(type) {
+		case store.ProjectStore:
+			s.projectStore = v
+		case *ReviewSkillService:
+			s.reviewSkills = v
+		case *SensitiveWordService:
+			s.sensitiveWords = v
+		}
+	}
+	return s
 }
 
 // List 列出所有巡检配置
@@ -113,12 +124,23 @@ func (s *ScanService) Update(v *model.ScanSchedule) error {
 
 // Delete 删除巡检配置
 func (s *ScanService) Delete(id int64) error {
+	running, err := s.jobs.HasRunningBySchedule(id)
+	if err != nil {
+		return err
+	}
+	if running {
+		return fmt.Errorf("该巡检配置存在运行中的任务，请等待完成后再删除")
+	}
 	return s.schedules.Delete(id)
 }
 
 // ListJobs 获取某个配置的历史执行记录
 func (s *ScanService) ListJobs(scheduleID int64, limit int) ([]model.ScanJob, error) {
 	return s.jobs.ListBySchedule(scheduleID, limit)
+}
+
+func (s *ScanService) HasRunningJob(scheduleID int64) (bool, error) {
+	return s.jobs.HasRunningBySchedule(scheduleID)
 }
 
 // DeleteJob 删除单次执行记录及其分支结果
@@ -136,127 +158,124 @@ func (s *ScanService) ListBranchResults(jobID int64) ([]model.ScanBranchResult, 
 	return s.jobs.ListBranchResults(jobID)
 }
 
-// RunSchedule 执行一次巡检（同步，供调度器和手动触发调用）
+// ListJobLogs 获取单次执行的节点/状态日志
+func (s *ScanService) ListJobLogs(jobID int64) ([]model.ScanJobLog, error) {
+	return s.jobs.ListJobLogs(jobID)
+}
+
+// RunSchedule 执行一次巡检（同步，供调度器调用）
 func (s *ScanService) RunSchedule(ctx context.Context, scheduleID int64) error {
-	sched, err := s.schedules.GetByID(scheduleID)
-	if err != nil {
-		return fmt.Errorf("get schedule: %w", err)
-	}
-
-	now := time.Now()
-	job := &model.ScanJob{
-		ScheduleID:  scheduleID,
-		Status:      model.ScanJobStatusRunning,
-		TriggeredAt: now,
-	}
-	if err := s.jobs.Create(job); err != nil {
-		return fmt.Errorf("create job: %w", err)
-	}
-
-	cfg, err := s.buildConfig(sched)
-	if err != nil {
-		return s.failJob(job, fmt.Sprintf("build config: %v", err))
-	}
-
-	// 确保仓库存在，使用 scan/ 子目录隔离，避免与项目仓库混用
-	repoKey := fmt.Sprintf("scan/%d", scheduleID)
-	repoDir := filepath.Join(s.repoMgr.BaseDir(), repoKey)
-	if err := s.ensureRepo(ctx, repoDir, cfg); err != nil {
-		return s.failJob(job, fmt.Sprintf("ensure repo: %v", err))
-	}
-
-	// 列出所有远程分支
-	branches, err := s.listRemoteBranches(ctx, repoDir)
-	if err != nil {
-		return s.failJob(job, fmt.Sprintf("list branches: %v", err))
-	}
-	job.BranchCount = len(branches)
-
-	// 读取上次各分支的 checkpoint（上次巡检到的 commit hash）
-	checkpoints := s.loadCheckpoints(sched)
-
-	changedCount := 0
-	var reportSections []string
-
-	for _, branch := range branches {
-		// 获取该分支的 HEAD commit
-		headCommit, err := s.getBranchHead(ctx, repoDir, branch)
-		if err != nil || headCommit == "" {
-			continue
-		}
-
-		lastCommit := checkpoints[branch]
-
-		var commits []commitEntry
-		if lastCommit == "" {
-			// 第一次巡检：取最近 3 次 commit
-			commits, err = s.getRecentCommits(ctx, repoDir, branch, 3)
-		} else if lastCommit == headCommit {
-			// 和上次一样，无改动
-			continue
-		} else {
-			// 有新 commit：取 lastCommit 到 HEAD 之间的
-			commits, err = s.getCommitsBetween(ctx, repoDir, branch, lastCommit, headCommit)
-		}
-		if err != nil || len(commits) == 0 {
-			// 更新 checkpoint 即使没有 commit（可能 lastCommit 为空且最近无提交）
-			if lastCommit == "" && headCommit != "" {
-				checkpoints[branch] = headCommit
-			}
-			continue
-		}
-		changedCount++
-
-		result, err := s.analyzeBranch(ctx, cfg, repoDir, branch, commits, sched.RepoURL, job.ID)
-		if err != nil {
-			result = &model.ScanBranchResult{
-				JobID:         job.ID,
-				BranchName:    branch,
-				CommitCount:   len(commits),
-				AnalysisStage: model.ScanAnalysisStageMessageOnly,
-				Result:        fmt.Sprintf("分析失败: %v", err),
-				HasRisk:       false,
-				RiskLevel:     "unknown",
-			}
-		}
-		if err2 := s.jobs.CreateBranchResult(result); err2 != nil {
-			_ = err2
-		}
-		reportSections = append(reportSections, s.formatBranchSection(branch, result, commits))
-		// 更新 checkpoint 为本次 HEAD
-		checkpoints[branch] = headCommit
-	}
-
-	// 保存更新后的 checkpoints
-	s.saveCheckpoints(sched, checkpoints)
-
-	job.ChangedBranchCount = changedCount
-
-	// 生成报告并上传 NAS
-	var reportPath string
-	if len(reportSections) > 0 {
-		reportContent := s.buildReport(sched.Name, sched.RepoURL, reportSections)
-		reportPath, err = s.uploadToNAS(cfg, sched.Name, reportContent)
-		if err != nil {
-			// 上传失败不中断，记录错误
-			job.ErrorMessage = fmt.Sprintf("NAS upload failed: %v", err)
-		}
-	}
-
-	finishedAt := time.Now()
-	job.Status = model.ScanJobStatusCompleted
-	job.FinishedAt = &finishedAt
-	job.ReportPath = reportPath
-	if err := s.jobs.Update(job); err != nil {
+	if err := s.acquireScheduleRun(scheduleID); err != nil {
 		return err
 	}
+	defer s.releaseScheduleRun(scheduleID)
+	return s.runScheduleOnce(ctx, scheduleID)
+}
 
-	// 清理 NAS 过期报告
-	s.cleanupOldReports(ctx, scheduleID, cfg)
+// TriggerSchedule 异步触发一次巡检；在返回前完成并发占位，避免重复点击创建多个 goroutine。
+func (s *ScanService) TriggerSchedule(ctx context.Context, scheduleID int64) error {
+	if err := s.acquireScheduleRun(scheduleID); err != nil {
+		return err
+	}
+	if err := s.ensureNoRunningJob(scheduleID); err != nil {
+		s.releaseScheduleRun(scheduleID)
+		return err
+	}
+	go func() {
+		defer s.releaseScheduleRun(scheduleID)
+		_ = newScanScheduleWorkflow(s).Run(ctx, scheduleID)
+	}()
 	return nil
 }
 
+func (s *ScanService) runScheduleOnce(ctx context.Context, scheduleID int64) error {
+	if err := s.ensureNoRunningJob(scheduleID); err != nil {
+		return err
+	}
+	return newScanScheduleWorkflow(s).Run(ctx, scheduleID)
+}
+
+func (s *ScanService) ensureNoRunningJob(scheduleID int64) error {
+	running, err := s.jobs.HasRunningBySchedule(scheduleID)
+	if err != nil {
+		return err
+	}
+	if running {
+		return fmt.Errorf("巡检配置 %d 已有运行中的任务", scheduleID)
+	}
+	return nil
+}
+
+func (s *ScanService) acquireScheduleRun(scheduleID int64) error {
+	s.runningMu.Lock()
+	defer s.runningMu.Unlock()
+	if s.runningSchedules == nil {
+		s.runningSchedules = make(map[int64]struct{})
+	}
+	if _, ok := s.runningSchedules[scheduleID]; ok {
+		return fmt.Errorf("巡检配置 %d 已有运行中的任务", scheduleID)
+	}
+	s.runningSchedules[scheduleID] = struct{}{}
+	return nil
+}
+
+func (s *ScanService) releaseScheduleRun(scheduleID int64) {
+	s.runningMu.Lock()
+	defer s.runningMu.Unlock()
+	delete(s.runningSchedules, scheduleID)
+}
+
 // ---- internal helpers ----
+
+func (s *ScanService) prepareScanRepo(ctx context.Context, repoDir string, cfg *ScanConfig) error {
+	if s.repoPreparer != nil {
+		return s.repoPreparer(ctx, repoDir, cfg)
+	}
+	return s.ensureRepo(ctx, repoDir, cfg)
+}
+
+func (s *ScanService) loadRemoteBranches(ctx context.Context, repoDir string) ([]string, error) {
+	if s.branchLister != nil {
+		return s.branchLister(ctx, repoDir)
+	}
+	return s.listRemoteBranches(ctx, repoDir)
+}
+
+func (s *ScanService) loadBranchHead(ctx context.Context, repoDir, branch string) (string, error) {
+	if s.branchHeadGetter != nil {
+		return s.branchHeadGetter(ctx, repoDir, branch)
+	}
+	return s.getBranchHead(ctx, repoDir, branch)
+}
+
+func (s *ScanService) loadRecentCommits(ctx context.Context, repoDir, branch string, n int) ([]commitEntry, error) {
+	if s.recentCommitsGetter != nil {
+		return s.recentCommitsGetter(ctx, repoDir, branch, n)
+	}
+	return s.getRecentCommits(ctx, repoDir, branch, n)
+}
+
+func (s *ScanService) loadCommitsBetween(ctx context.Context, repoDir, branch, fromCommit, headCommit string) ([]commitEntry, error) {
+	if s.commitsBetweenGetter != nil {
+		return s.commitsBetweenGetter(ctx, repoDir, branch, fromCommit, headCommit)
+	}
+	return s.getCommitsBetween(ctx, repoDir, branch, fromCommit, headCommit)
+}
+
+func (s *ScanService) uploadScanReport(cfg *ScanConfig, name, content string) (string, error) {
+	if s.reportUploader != nil {
+		return s.reportUploader(cfg, name, content)
+	}
+	return s.uploadToNAS(cfg, name, content)
+}
+
+func (s *ScanService) cleanOldScanReports(ctx context.Context, scheduleID int64, cfg *ScanConfig) {
+	if s.oldReportsCleaner != nil {
+		s.oldReportsCleaner(ctx, scheduleID, cfg)
+		return
+	}
+	s.cleanupOldReports(ctx, scheduleID, cfg)
+}
 
 func (s *ScanService) buildConfig(sched *model.ScanSchedule) (*ScanConfig, error) {
 	mc, err := s.models.GetByID(sched.ModelConfigID)
@@ -287,9 +306,23 @@ func (s *ScanService) buildConfig(sched *model.ScanSchedule) (*ScanConfig, error
 	if nasPass == "" {
 		nasPass = globalNasPass
 	}
-	prompt := sched.CustomPrompt
-	if prompt == "" {
-		prompt = globalPrompt
+	prompt := globalPrompt
+	if strings.TrimSpace(prompt) == "" {
+		prompt = defaultScanPrompt
+	}
+	skillPrompt, projectPrompt, err := s.buildProjectPromptContextByRepoURL(sched.RepoURL)
+	if err != nil {
+		return nil, err
+	}
+	if strings.TrimSpace(projectPrompt) != "" {
+		prompt = prompt + "\n\n## 项目自定义提示词\n\n" + strings.TrimSpace(projectPrompt)
+	}
+	if strings.TrimSpace(sched.CustomPrompt) != "" {
+		prompt = prompt + "\n\n## 巡检配置自定义提示词\n\n" + strings.TrimSpace(sched.CustomPrompt)
+	}
+
+	if err := validateNASURL(nasURL); err != nil {
+		return nil, err
 	}
 
 	nasSubDir := sched.NasSubDir
@@ -307,12 +340,44 @@ func (s *ScanService) buildConfig(sched *model.ScanSchedule) (*ScanConfig, error
 		RepoURL:     sched.RepoURL,
 		Cred:        cred,
 		ModelConfig: mc,
+		SkillPrompt: skillPrompt,
 		Prompt:      prompt,
 		NasURL:      nasURL,
 		NasUsername: nasUser,
 		NasPassword: nasPass,
 		NasSubDir:   nasSubDir,
 	}, nil
+}
+
+func (s *ScanService) buildProjectPromptContextByRepoURL(repoURL string) (skillPrompt, projectPrompt string, err error) {
+	if s.projectStore == nil || strings.TrimSpace(repoURL) == "" {
+		return "", "", nil
+	}
+	projects, err := s.projectStore.List()
+	if err != nil {
+		return "", "", err
+	}
+	var matched *model.Project
+	trimmed := strings.TrimSpace(repoURL)
+	for i := range projects {
+		if strings.TrimSpace(projects[i].RepoURL) == trimmed {
+			matched = &projects[i]
+			break
+		}
+	}
+	if matched == nil {
+		return "", "", nil
+	}
+	projectPrompt = matched.CustomPrompt
+	if s.reviewSkills == nil {
+		return "", projectPrompt, nil
+	}
+	skillIDs, err := s.projectStore.ListSkillIDs(matched.ID)
+	if err != nil {
+		return "", "", err
+	}
+	skillPrompt, err = s.reviewSkills.BuildPromptForSkillIDs(skillIDs)
+	return skillPrompt, projectPrompt, err
 }
 
 func (s *ScanService) ensureRepo(ctx context.Context, repoDir string, cfg *ScanConfig) error {
@@ -402,25 +467,21 @@ func (s *ScanService) analyzeBranch(
 	repoURL string,
 	jobID int64,
 ) (*model.ScanBranchResult, error) {
-	// 构建 commit message 列表文本
-	var sb strings.Builder
-	for i, c := range commits {
-		sb.WriteString(fmt.Sprintf("%d. [%s] %s (%s, %s)\n", i+1, c.Hash, c.Message, c.Author, c.Time))
+	graph := newScanBranchGraph(s)
+	return graph.Run(ctx, scanBranchGraphInput{
+		Config:  cfg,
+		RepoDir: repoDir,
+		Branch:  branch,
+		Commits: commits,
+		RepoURL: repoURL,
+		JobID:   jobID,
+	})
+}
+
+func (s *ScanService) loadBranchDiff(ctx context.Context, repoDir, branch, fromCommit string) (string, error) {
+	if s.diffLoader != nil {
+		return s.diffLoader(ctx, repoDir, branch, fromCommit)
 	}
-	commitText := sb.String()
-
-	// 存储 commits JSON
-	commitsJSON, _ := json.Marshal(commits)
-
-	// 确定 fromCommit / toCommit
-	var fromCommit, toCommit string
-	if len(commits) > 0 {
-		toCommit = commits[0].Hash
-		fromCommit = commits[len(commits)-1].Hash
-	}
-
-	// 始终拉 diff
-	var diffText string
 	rawDiff, err := runGit(ctx, repoDir, "git", "log", "-p",
 		fmt.Sprintf("%s..origin/%s", fromCommit, branch))
 	if err != nil || strings.TrimSpace(rawDiff) == "" {
@@ -429,45 +490,22 @@ func (s *ScanService) analyzeBranch(
 			"--after="+time.Now().Add(-24*time.Hour).Format("2006-01-02"),
 			"origin/"+branch)
 	}
-	diffText = strings.TrimSpace(rawDiff)
-	if len(diffText) > 12000 {
-		diffText = diffText[:12000] + "\n...(已截断)"
-	}
+	diffText := strings.TrimSpace(rawDiff)
 	if diffText == "" {
 		diffText = "（无可用 diff）"
 	}
-
-	// 单次 LLM 调用，commit 信息 + diff 一起送入
-	promptBase := cfg.Prompt
-	if promptBase == "" {
-		promptBase = defaultScanPrompt
-	}
-	today := time.Now().Format("2006-01-02")
-	finalPrompt := fmt.Sprintf(promptBase, repoURL, branch, today, len(commits), commitText, diffText)
-
-	finalResult, err := s.callLLM(ctx, cfg.ModelConfig, finalPrompt)
-	if err != nil {
-		return nil, fmt.Errorf("LLM call: %w", err)
-	}
-
-	stage := model.ScanAnalysisStageWithDiff
-	riskLevel, hasRisk := parseRiskLevel(finalResult)
-
-	return &model.ScanBranchResult{
-		JobID:          jobID,
-		BranchName:     branch,
-		CommitCount:    len(commits),
-		CommitMessages: string(commitsJSON),
-		FromCommit:     fromCommit,
-		ToCommit:       toCommit,
-		AnalysisStage:  stage,
-		Result:         finalResult,
-		HasRisk:        hasRisk,
-		RiskLevel:      riskLevel,
-	}, nil
+	return diffText, nil
 }
 
 func (s *ScanService) callLLM(ctx context.Context, mc *model.ModelConfig, prompt string) (string, error) {
+	sendPrompt := s.replaceSensitiveText(prompt)
+	if s.llmCaller != nil {
+		result, err := s.llmCaller(ctx, mc, sendPrompt)
+		if err != nil {
+			return "", err
+		}
+		return s.restoreSensitiveText(result), nil
+	}
 	provider, err := review.NewProvider(mc)
 	if err != nil {
 		return "", err
@@ -475,7 +513,7 @@ func (s *ScanService) callLLM(ctx context.Context, mc *model.ModelConfig, prompt
 	resp, err := provider.Completion(ctx, anyllm.CompletionParams{
 		Model: mc.Model,
 		Messages: []anyllm.Message{
-			{Role: "user", Content: prompt},
+			{Role: "user", Content: sendPrompt},
 		},
 	})
 	if err != nil {
@@ -488,10 +526,39 @@ func (s *ScanService) callLLM(ctx context.Context, mc *model.ModelConfig, prompt
 	if !ok {
 		return "", fmt.Errorf("unexpected content type from LLM")
 	}
-	return content, nil
+	return s.restoreSensitiveText(content), nil
+}
+
+func (s *ScanService) replaceSensitiveText(text string) string {
+	if s.sensitiveWords == nil {
+		return text
+	}
+	return s.sensitiveWords.Replace(text)
+}
+
+func (s *ScanService) restoreSensitiveText(text string) string {
+	if s.sensitiveWords == nil {
+		return text
+	}
+	return s.sensitiveWords.Restore(text)
 }
 
 func parseRiskLevel(text string) (level string, hasRisk bool) {
+	for _, line := range strings.Split(text, "\n") {
+		if !strings.Contains(line, "风险等级") {
+			continue
+		}
+		if _, after, ok := strings.Cut(line, "："); ok {
+			line = after
+		} else if _, after, ok := strings.Cut(line, ":"); ok {
+			line = after
+		}
+		return classifyRiskLevel(line)
+	}
+	return classifyRiskLevel(text)
+}
+
+func classifyRiskLevel(text string) (level string, hasRisk bool) {
 	lower := strings.ToLower(text)
 	switch {
 	case strings.Contains(lower, "高风险"):
@@ -546,6 +613,9 @@ func (s *ScanService) buildReport(name, repoURL string, sections []string) strin
 func (s *ScanService) uploadToNAS(cfg *ScanConfig, name, content string) (string, error) {
 	if cfg.NasURL == "" {
 		return "", nil
+	}
+	if err := validateNASURL(cfg.NasURL); err != nil {
+		return "", err
 	}
 	now := time.Now()
 	filename := fmt.Sprintf("%s巡检-%s.md", cfg.NasSubDir, now.Format("20060102-1504"))
@@ -606,6 +676,9 @@ func (s *ScanService) cleanupOldReports(ctx context.Context, scheduleID int64, c
 	if cfg.NasURL == "" {
 		return
 	}
+	if err := validateNASURL(cfg.NasURL); err != nil {
+		return
+	}
 	retainDaysStr, _ := s.settings.GetRaw(model.GlobalConfigKeyScanRetainDays)
 	retainDays := 0
 	if v, err := strconv.Atoi(retainDaysStr); err == nil {
@@ -652,13 +725,13 @@ func (s *ScanService) loadCheckpoints(sched *model.ScanSchedule) map[string]stri
 }
 
 // saveCheckpoints 将 checkpoints 序列化后写回 DB
-func (s *ScanService) saveCheckpoints(sched *model.ScanSchedule, checkpoints map[string]string) {
+func (s *ScanService) saveCheckpoints(sched *model.ScanSchedule, checkpoints map[string]string) error {
 	b, err := json.Marshal(checkpoints)
 	if err != nil {
-		return
+		return err
 	}
 	sched.BranchCheckpoints = string(b)
-	_ = s.schedules.Update(sched)
+	return s.schedules.Update(sched)
 }
 
 // getBranchHead 获取分支当前 HEAD commit hash
@@ -736,19 +809,58 @@ func runGit(ctx context.Context, dir string, args ...string) (string, error) {
 	return string(out), err
 }
 
+func ValidateNASURL(raw string) error {
+	return validateNASURL(raw)
+}
+
+func validateNASURL(raw string) error {
+	if strings.TrimSpace(raw) == "" {
+		return nil
+	}
+	u, err := url.Parse(raw)
+	if err != nil || u.Host == "" || (u.Scheme != "http" && u.Scheme != "https") {
+		return fmt.Errorf("invalid NAS URL")
+	}
+	return validateNASHost(u.Hostname())
+}
+
+func validateNASHost(host string) error {
+	if strings.TrimSpace(host) == "" {
+		return fmt.Errorf("invalid NAS host")
+	}
+	if addr, err := netip.ParseAddr(host); err == nil {
+		return rejectUnsafeNASAddr(addr)
+	}
+	ips, err := net.LookupIP(host)
+	if err != nil {
+		return fmt.Errorf("resolve NAS host: %w", err)
+	}
+	for _, ip := range ips {
+		addr, ok := netip.AddrFromSlice(ip)
+		if !ok {
+			return fmt.Errorf("invalid NAS host address")
+		}
+		if err := rejectUnsafeNASAddr(addr); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func rejectUnsafeNASAddr(addr netip.Addr) error {
+	if addr.IsLoopback() || addr.IsLinkLocalUnicast() || addr.IsLinkLocalMulticast() || addr.IsMulticast() || addr.IsUnspecified() {
+		return fmt.Errorf("NAS URL 不允许指向本机、链路本地、组播或未指定地址")
+	}
+	return nil
+}
+
 func injectCred(repoURL, username, password string) string {
-	if !strings.HasPrefix(repoURL, "https://") && !strings.HasPrefix(repoURL, "http://") {
+	u, err := url.Parse(repoURL)
+	if err != nil || (u.Scheme != "https" && u.Scheme != "http") || u.Host == "" {
 		return repoURL
 	}
-	prefix := "https://"
-	if strings.HasPrefix(repoURL, "http://") {
-		prefix = "http://"
-	}
-	rest := repoURL[len(prefix):]
-	if atIdx := strings.Index(rest, "@"); atIdx != -1 {
-		rest = rest[atIdx+1:]
-	}
-	return prefix + username + ":" + password + "@" + rest
+	u.User = url.UserPassword(username, password)
+	return u.String()
 }
 
 func min(a, b int) int {

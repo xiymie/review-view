@@ -3,8 +3,8 @@ package gormstore
 import (
 	"time"
 
-	"review-view/internal/model"
 	"gorm.io/gorm"
+	"review-view/internal/model"
 )
 
 // ScanScheduleStore
@@ -26,9 +26,12 @@ func (s *ScanScheduleStore) Delete(id int64) error {
 		// 查出所有 job id
 		var jobIDs []int64
 		tx.Model(&model.ScanJob{}).Where("schedule_id = ?", id).Pluck("id", &jobIDs)
-		// 级联删 branch_results
+		// 级联删 branch_results / job_logs
 		if len(jobIDs) > 0 {
 			if err := tx.Where("job_id IN ?", jobIDs).Delete(&model.ScanBranchResult{}).Error; err != nil {
+				return err
+			}
+			if err := tx.Where("job_id IN ?", jobIDs).Delete(&model.ScanJobLog{}).Error; err != nil {
 				return err
 			}
 		}
@@ -84,6 +87,9 @@ func (s *ScanJobStore) Delete(id int64) error {
 		if err := tx.Where("job_id = ?", id).Delete(&model.ScanBranchResult{}).Error; err != nil {
 			return err
 		}
+		if err := tx.Where("job_id = ?", id).Delete(&model.ScanJobLog{}).Error; err != nil {
+			return err
+		}
 		return tx.Delete(&model.ScanJob{}, id).Error
 	})
 }
@@ -108,6 +114,14 @@ func (s *ScanJobStore) ListBySchedule(scheduleID int64, limit int) ([]model.Scan
 	return list, nil
 }
 
+func (s *ScanJobStore) HasRunningBySchedule(scheduleID int64) (bool, error) {
+	var count int64
+	err := s.db.Model(&model.ScanJob{}).
+		Where("schedule_id = ? AND status = ?", scheduleID, model.ScanJobStatusRunning).
+		Count(&count).Error
+	return count > 0, err
+}
+
 func (s *ScanJobStore) ListBranchResults(jobID int64) ([]model.ScanBranchResult, error) {
 	var list []model.ScanBranchResult
 	if err := s.db.Where("job_id = ?", jobID).Order("branch_name asc").Find(&list).Error; err != nil {
@@ -118,6 +132,18 @@ func (s *ScanJobStore) ListBranchResults(jobID int64) ([]model.ScanBranchResult,
 
 func (s *ScanJobStore) CreateBranchResult(v *model.ScanBranchResult) error {
 	return s.db.Create(v).Error
+}
+
+func (s *ScanJobStore) AppendJobLog(jobID int64, level model.ScanJobLogLevel, message string) error {
+	return s.db.Create(&model.ScanJobLog{JobID: jobID, Level: level, Message: message}).Error
+}
+
+func (s *ScanJobStore) ListJobLogs(jobID int64) ([]model.ScanJobLog, error) {
+	var logs []model.ScanJobLog
+	if err := s.db.Where("job_id = ?", jobID).Order("id asc").Find(&logs).Error; err != nil {
+		return nil, err
+	}
+	return logs, nil
 }
 
 // ListJobsOlderThan 返回 triggered_at 早于 before 且有 report_path 的 job 列表

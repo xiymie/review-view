@@ -19,6 +19,7 @@ type Handlers struct {
 	Credentials    *CredentialHandler
 	Auth           *AuthHandler
 	SensitiveWords *SensitiveWordHandler
+	ReviewSkills   *ReviewSkillHandler
 	Users          *UserHandler
 	Scan           *ScanHandler
 }
@@ -58,6 +59,8 @@ func NewRouter(handlers *Handlers) *gin.Engine {
 	api.GET("/projects/:id", handlers.Projects.APIGet)
 	api.PUT("/projects/:id", handlers.Projects.APIUpdate)
 	api.PUT("/projects/:id/schedule", handlers.Projects.APIUpdateSchedule)
+	api.GET("/projects/:id/skills", handlers.Projects.APIGetSkills)
+	api.PUT("/projects/:id/skills", handlers.Projects.APISetSkills)
 	api.DELETE("/projects/:id", handlers.Projects.APIDelete)
 	api.GET("/projects/:id/commits", handlers.Projects.Commits)
 	api.POST("/projects/:id/trigger", handlers.Projects.APITrigger)
@@ -97,6 +100,9 @@ func NewRouter(handlers *Handlers) *gin.Engine {
 	api.PUT("/sensitive-words/:id", handlers.SensitiveWords.APIUpdate)
 	api.DELETE("/sensitive-words/:id", handlers.SensitiveWords.APIDelete)
 
+	// Review Skills list is available to authenticated users for project-level selection.
+	api.GET("/review-skills", handlers.ReviewSkills.APIList)
+
 	// Users - own profile (any authenticated user)
 	api.GET("/users/me", handlers.Users.APIGetMe)
 	api.PUT("/users/me", handlers.Users.APIUpdateMe)
@@ -109,6 +115,13 @@ func NewRouter(handlers *Handlers) *gin.Engine {
 	adminAPI.GET("/users/:id", handlers.Users.APIGet)
 	adminAPI.PUT("/users/:id", handlers.Users.APIUpdate)
 	adminAPI.DELETE("/users/:id", handlers.Users.APIDelete)
+
+	// Review Skills - admin only
+	adminAPI.POST("/review-skills", handlers.ReviewSkills.APICreate)
+	adminAPI.GET("/review-skills/:id", handlers.ReviewSkills.APIGet)
+	adminAPI.PUT("/review-skills/:id", handlers.ReviewSkills.APIUpdate)
+	adminAPI.PATCH("/review-skills/:id/toggle", handlers.ReviewSkills.APIToggle)
+	adminAPI.DELETE("/review-skills/:id", handlers.ReviewSkills.APIDelete)
 
 	// Scan Schedules - admin only
 	adminAPI.GET("/scan-schedules", handlers.Scan.APIList)

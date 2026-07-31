@@ -417,7 +417,7 @@ async function fetchData() {
 
 onMounted(() => {
   fetchData()
-  autoRefreshTimer = setInterval(fetchData, 30 * 1000)
+  onRefreshChange(autoRefreshInterval.value)
 })
 onUnmounted(() => { clearInterval(timer); clearInterval(autoRefreshTimer) })
 </script>

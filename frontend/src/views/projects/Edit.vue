@@ -72,6 +72,32 @@
           </el-col>
         </el-row>
 
+
+        <el-form-item label="项目 Review Skill" prop="skill_ids">
+          <el-select
+            v-model="form.skill_ids"
+            multiple
+            clearable
+            collapse-tags
+            collapse-tags-tooltip
+            placeholder="不选择则不注入任何 Skill"
+            style="width:100%"
+          >
+            <el-option
+              v-for="skill in enabledReviewSkills"
+              :key="skill.id"
+              :label="skill.name"
+              :value="skill.id"
+            >
+              <div class="skill-option">
+                <span class="skill-option-name">{{ skill.name }}</span>
+                <span class="skill-option-desc">{{ skill.description }}</span>
+              </div>
+            </el-option>
+          </el-select>
+          <div class="field-hint">Review Skill 是全局可用池；本项目只注入这里选择的 Skill。未选择时，不注入任何 Skill。</div>
+        </el-form-item>
+
         <el-form-item prop="custom_prompt">
           <template #label>
             <div class="prompt-label-row">
@@ -151,7 +177,7 @@ import { useRouter, useRoute } from 'vue-router'
 import { ElMessageBox, ElMessage } from 'element-plus'
 import { FullScreen } from '@element-plus/icons-vue'
 import { marked } from 'marked'
-import { getProject, updateProject, deleteProject, listModels, listCredentials } from '../../api/projects'
+import { getProject, updateProject, deleteProject, listModels, listCredentials, listReviewSkills, getProjectSkills } from '../../api/projects'
 
 const router = useRouter()
 const route = useRoute()
@@ -162,6 +188,7 @@ const formRef = ref(null)
 const submitting = ref(false)
 const models = ref([])
 const credentials = ref([])
+const reviewSkills = ref([])
 const promptTab = ref('preview')
 const fsTab = ref('preview')
 const promptFullscreen = ref(false)
@@ -175,9 +202,11 @@ const form = ref({
   custom_prompt: '',
   overflow_strategy: 'queue',
   task_timeout: 30,
+  skill_ids: [],
 })
 
 const renderedPrompt = computed(() => form.value.custom_prompt ? marked.parse(form.value.custom_prompt) : '')
+const enabledReviewSkills = computed(() => reviewSkills.value.filter(s => s.enabled))
 
 const rules = {
   name: [{ required: true, message: '请输入项目名称', trigger: 'blur' }],
@@ -188,14 +217,17 @@ const rules = {
 
 onMounted(async () => {
   try {
-    const [projectRes, modelsRes, credsRes] = await Promise.all([
+    const [projectRes, modelsRes, credsRes, skillRes, projectSkillRes] = await Promise.all([
       getProject(projectId.value),
       listModels(),
       listCredentials(),
+      listReviewSkills(),
+      getProjectSkills(projectId.value),
     ])
     const p = projectRes.data.project
     models.value = modelsRes.data
     credentials.value = credsRes.data
+    reviewSkills.value = skillRes.data || []
     form.value = {
       name: p.name,
       repo_url: p.repo_url,
@@ -205,6 +237,7 @@ onMounted(async () => {
       custom_prompt: p.custom_prompt,
       overflow_strategy: p.overflow_strategy,
       task_timeout: p.task_timeout,
+      skill_ids: projectSkillRes.data?.skill_ids || [],
     }
   } catch (err) {
     ElMessage.error(err.response?.data?.message || '加载失败')
@@ -295,6 +328,10 @@ async function handleDelete() {
 }
 
 .field-hint { font-size: 12px; color: #9ca3af; margin-top: 5px; }
+.skill-option { display:flex; align-items:center; gap:10px; min-width:0; }
+.skill-option-name { font-weight:650; color:#0f172a; flex-shrink:0; }
+.skill-option-desc { color:#94a3b8; font-size:12px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+
 
 /* Prompt tabs */
 .prompt-tabs {

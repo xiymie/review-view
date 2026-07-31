@@ -19,7 +19,7 @@ type ScanSchedule struct {
 	NasPassword string
 	// 上传子目录，默认用仓库名（文件路径格式：/TMMTMM/代码巡检记录/{SubDir}/...）
 	NasSubDir string
-	Enabled   bool      `gorm:"not null;default:true"`
+	Enabled   bool `gorm:"not null;default:true"`
 	// BranchCheckpoints JSON map[branch]lastCommitHash，记录每个分支上次巡检到的 commit
 	BranchCheckpoints string `gorm:"type:text"`
 	CreatedAt         time.Time
@@ -42,28 +42,47 @@ type ScanJob struct {
 	ScheduleID         int64         `gorm:"not null;index"`
 	Status             ScanJobStatus `gorm:"not null;default:'pending'"`
 	ErrorMessage       string
-	BranchCount        int // 扫描的总分支数
-	ChangedBranchCount int // 有改动的分支数
+	BranchCount        int    // 扫描的总分支数
+	ChangedBranchCount int    // 有改动的分支数
+	RiskCount          int    // 有风险的分支结果数量，巡检完成时汇总写入，避免仪表盘 N+1 查询
 	ReportPath         string // 写入 NAS 的路径
 	TriggeredAt        time.Time
 	FinishedAt         *time.Time
+}
+
+// ScanJobLogLevel 巡检执行日志级别
+type ScanJobLogLevel string
+
+const (
+	ScanJobLogLevelInfo  ScanJobLogLevel = "info"
+	ScanJobLogLevelWarn  ScanJobLogLevel = "warn"
+	ScanJobLogLevelError ScanJobLogLevel = "error"
+)
+
+// ScanJobLog 每次巡检执行的节点/状态日志
+type ScanJobLog struct {
+	ID        int64           `gorm:"primaryKey"`
+	JobID     int64           `gorm:"not null;index"`
+	Level     ScanJobLogLevel `gorm:"not null"`
+	Message   string          `gorm:"type:text;not null"`
+	CreatedAt time.Time
 }
 
 // ScanAnalysisStage 分析阶段
 type ScanAnalysisStage string
 
 const (
-	ScanAnalysisStageMessageOnly  ScanAnalysisStage = "message_only"  // 仅凭 commit message 判断
-	ScanAnalysisStageWithDiff     ScanAnalysisStage = "with_diff"     // 追加了 diff 分析
+	ScanAnalysisStageMessageOnly ScanAnalysisStage = "message_only" // 仅凭 commit message 判断
+	ScanAnalysisStageWithDiff    ScanAnalysisStage = "with_diff"    // 追加了 diff 分析
 )
 
 // ScanBranchResult 每个分支的分析结果
 type ScanBranchResult struct {
-	ID             int64             `gorm:"primaryKey"`
-	JobID          int64             `gorm:"not null;index"`
-	BranchName     string            `gorm:"not null"`
+	ID             int64  `gorm:"primaryKey"`
+	JobID          int64  `gorm:"not null;index"`
+	BranchName     string `gorm:"not null"`
 	CommitCount    int
-	CommitMessages string            // JSON 数组，存储 commit hash+message+author+time
+	CommitMessages string // JSON 数组，存储 commit hash+message+author+time
 	FromCommit     string
 	ToCommit       string
 	AnalysisStage  ScanAnalysisStage `gorm:"not null"`

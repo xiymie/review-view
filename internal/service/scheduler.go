@@ -9,15 +9,14 @@ import (
 	"strconv"
 	"strings"
 	"sync"
-	"sync/atomic"
 	"time"
 
 	cronparser "github.com/robfig/cron/v3"
+	"golang.org/x/sync/semaphore"
 	"review-view/internal/model"
 	"review-view/internal/notify"
 	"review-view/internal/review"
 	"review-view/internal/store"
-	"golang.org/x/sync/semaphore"
 )
 
 type Scheduler struct {
@@ -30,13 +29,14 @@ type Scheduler struct {
 	users           store.UserStore
 	reviewerFactory func(*model.ModelConfig) review.Reviewer
 	sensitiveWords  *SensitiveWordService
+	reviewSkills    *ReviewSkillService
 	cache           *TaskCache
 	taskService     *TaskService
 	notifier        notify.Notifier
 	sem             *semaphore.Weighted
 	cancels         sync.Map
 	interval        time.Duration
-	execute         func(context.Context, int64) error
+	reviewWorkflow  ReviewWorkflow
 	onTaskLaunched  func(int64)
 }
 
@@ -78,12 +78,29 @@ func NewScheduler(
 		sem:             semaphore.NewWeighted(maxConcurrent),
 		interval:        interval,
 	}
-	scheduler.execute = scheduler.ExecuteTask
+	scheduler.reviewWorkflow = newLegacyReviewWorkflow(scheduler)
 	return scheduler
 }
 
 func (s *Scheduler) SetTaskService(ts *TaskService) {
 	s.taskService = ts
+}
+
+func (s *Scheduler) SetReviewSkillService(skills *ReviewSkillService) {
+	s.reviewSkills = skills
+}
+
+func (s *Scheduler) SetReviewWorkflowMode(mode string) error {
+	switch strings.ToLower(strings.TrimSpace(mode)) {
+	case "", "legacy":
+		s.reviewWorkflow = newLegacyReviewWorkflow(s)
+		return nil
+	case "eino":
+		s.reviewWorkflow = newEinoReviewWorkflow(newLegacyReviewWorkflow(s), s.cache, s.reviewSkills)
+		return nil
+	default:
+		return fmt.Errorf("unsupported review workflow mode %q", mode)
+	}
 }
 
 func (s *Scheduler) SetNotifier(n notify.Notifier, users store.UserStore) {
@@ -116,7 +133,7 @@ func (s *Scheduler) RunOnce(ctx context.Context) error {
 
 		go func() {
 			defer s.sem.Release(1)
-			_ = s.execute(context.Background(), taskID)
+			_ = s.reviewWorkflow.Run(context.Background(), ReviewInput{TaskID: taskID})
 		}()
 	}
 
@@ -214,144 +231,7 @@ func (s *Scheduler) flushLogs(taskID int64) {
 }
 
 func (s *Scheduler) ExecuteTask(ctx context.Context, taskID int64) error {
-	task, err := s.tasks.GetByID(taskID)
-	if err != nil {
-		return err
-	}
-
-	project, err := s.projects.GetByID(task.ProjectID)
-	if err != nil {
-		return err
-	}
-
-	modelConfig, err := s.modelConfigs.GetByID(project.ModelConfigID)
-	if err != nil {
-		return err
-	}
-
-	timeoutMinutes := s.getTaskTimeoutMinutes(project)
-	runCtx, cancel := context.WithTimeout(ctx, time.Duration(timeoutMinutes)*time.Minute)
-	s.RegisterCancel(task.ID, cancel)
-	defer func() {
-		cancel()
-		s.cancels.Delete(task.ID)
-	}()
-
-	startedAt := time.Now()
-	task.Status = model.TaskStatusRunning
-	task.StartedAt = &startedAt
-	if err := s.tasks.Update(task); err != nil {
-		return err
-	}
-	s.appendLog(task.ID, model.TaskLogLevelInfo, "任务开始执行")
-
-	var cred *model.RepoCredential
-	if project.RepoCredentialID != nil {
-		cred, _ = s.credentials.GetByID(*project.RepoCredentialID)
-	}
-
-	repoDir, err := s.repoManager.EnsureRepo(runCtx, project.ID, project.RepoURL, project.Branch, cred)
-	if err != nil {
-		s.appendLog(task.ID, model.TaskLogLevelError, "代码仓库同步失败: "+err.Error())
-		return s.failTask(task, err)
-	}
-	s.appendLog(task.ID, model.TaskLogLevelInfo, "代码仓库同步完成")
-
-	// checkout 到目标 commit，使工作目录包含该 commit 的完整代码
-	if err := s.repoManager.Checkout(runCtx, repoDir, task.ToCommit); err != nil {
-		s.appendLog(task.ID, model.TaskLogLevelError, "代码迁出失败: "+err.Error())
-		return s.failTask(task, err)
-	}
-	s.appendLog(task.ID, model.TaskLogLevelInfo, "已迁出到 commit "+task.ToCommit)
-
-	prompt := modelConfig.Prompt
-	if project.CustomPrompt != "" {
-		prompt = prompt + "\n\n## 项目补充说明\n\n" + project.CustomPrompt
-	}
-
-	if modelConfig.Type == model.ModelTypeClaudeCLI {
-		prompt = review.BuildCLIPrompt(prompt, task.FromCommit, task.ToCommit)
-	}
-	// Agent 路径：变更信息已在 Task 创建时填充，直接使用
-	s.appendLog(task.ID, model.TaskLogLevelInfo, fmt.Sprintf("变更文件: %d 字符, commit 记录: %d 字符", len(task.DiffContent), len(task.CommitMessages)))
-
-	s.appendLog(task.ID, model.TaskLogLevelInfo, "开始调用 "+string(modelConfig.Type))
-
-	var outputChars int64
-	onChunk := func(text string) {
-		s.cache.AppendResultChunk(task.ID, text)
-		n := atomic.AddInt64(&outputChars, int64(len([]rune(text))))
-		// 流式过程中按字符数估算 output token（中英混合约 3 字符/token）
-		s.cache.UpdateTokens(task.ID, 0, n/3)
-	}
-	onLog := func(level, msg string) {
-		s.appendLog(task.ID, model.TaskLogLevelInfo, msg)
-	}
-
-	result, err := s.reviewerFactory(modelConfig).Review(runCtx, review.ReviewParams{
-		Prompt:         prompt,
-		WorkDir:        repoDir,
-		FromCommit:     task.FromCommit,
-		ToCommit:       task.ToCommit,
-		DiffContent:    task.DiffContent,
-		CommitMessages: task.CommitMessages,
-		ModelConfig:    modelConfig,
-		OnChunk:        onChunk,
-		OnLog:          onLog,
-		Replace:        s.sensitiveWordReplacer(),
-		Restore:        s.sensitiveWordRestorer(),
-	})
-	if err != nil {
-		switch runCtx.Err() {
-		case context.DeadlineExceeded:
-			s.appendLog(task.ID, model.TaskLogLevelError, fmt.Sprintf("任务超时 (%d 分钟)", timeoutMinutes))
-			return s.failTask(task, fmt.Errorf("任务超时"))
-		case context.Canceled:
-			s.appendLog(task.ID, model.TaskLogLevelInfo, "任务被取消")
-			return s.cancelTaskRecord(task)
-		default:
-			s.appendLog(task.ID, model.TaskLogLevelError, "Review 调用失败: "+err.Error())
-			return s.failTask(task, err)
-		}
-	}
-
-	s.appendLog(task.ID, model.TaskLogLevelInfo, fmt.Sprintf("Review 完成，耗时 %dms", result.DurationMs))
-
-	finishedAt := time.Now()
-	task.Status = model.TaskStatusCompleted
-	task.Result = result.Content
-
-	// 敏感词检测：扫描已 checkout 的工作区，命中结果前置拼接到报告
-	if hits, configured, scanErr := s.scanSensitiveWords(runCtx, repoDir); scanErr != nil {
-		s.appendLog(task.ID, model.TaskLogLevelError, "敏感词检测失败: "+scanErr.Error())
-	} else if configured {
-		s.appendLog(task.ID, model.TaskLogLevelInfo, fmt.Sprintf("敏感词检测完成，命中 %d 处", len(hits)))
-		task.Result = buildSensitiveReport(hits) + "\n" + task.Result
-	}
-
-	task.InputTokens = result.InputTokens
-	task.OutputTokens = result.OutputTokens
-	task.CacheCreationTokens = result.CacheCreationTokens
-	task.CacheReadTokens = result.CacheReadTokens
-	task.FinishedAt = &finishedAt
-	s.writeReviewFile(task.ProjectID, task)
-	if err := s.tasks.Update(task); err != nil {
-		return err
-	}
-	// 推送最终精确 token 数，显式触发 SSE handler 的 done 检测
-	s.cache.UpdateTokens(task.ID, task.InputTokens, task.OutputTokens)
-	s.cache.SendNotify(task.ID)
-	s.cache.RemoveResult(task.ID)
-	s.flushLogs(task.ID)
-
-	s.dispatchNotify(task, project)
-
-	// 只有增量 review（from 等于 LastReviewedCommit）才更新 LastReviewedCommit
-	if task.FromCommit == project.LastReviewedCommit {
-		project.LastReviewedCommit = task.ToCommit
-		return s.projects.Update(project)
-	}
-	return nil
+	return s.reviewWorkflow.Run(ctx, ReviewInput{TaskID: taskID})
 }
 
 func (s *Scheduler) RegisterCancel(taskID int64, cancel func()) {

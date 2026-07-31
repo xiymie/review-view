@@ -9,5 +9,8 @@ export const deleteProject         = (id)       => http.delete(`/api/projects/${
 export const triggerProject        = (id, data) => http.post(`/api/projects/${id}/trigger`, data)
 export const initProject           = (id)       => http.post(`/api/projects/${id}/initialize`)
 export const getCommits            = (id)       => http.get(`/api/projects/${id}/commits?limit=50`)
+export const getProjectSkills      = (id)       => http.get(`/api/projects/${id}/skills`)
+export const setProjectSkills      = (id, data) => http.put(`/api/projects/${id}/skills`, data)
+export const listReviewSkills      = ()         => http.get('/api/review-skills')
 export const listModels            = ()         => http.get('/api/models')
 export const listCredentials       = ()         => http.get('/api/credentials')

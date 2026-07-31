@@ -15,6 +15,15 @@ type sensitiveHit struct {
 	Snippet string
 }
 
+// sensitiveReplacementHit 一条替换类敏感词命中记录。用于审计日志，方便定位哪个文件触发了替换。
+type sensitiveReplacementHit struct {
+	Original    string
+	Replacement string
+	File        string
+	Line        int
+	Snippet     string
+}
+
 const maxSnippetLen = 200 // 单条片段最大字符数
 const maxHitsPerWord = 50 // 单个词最多展示命中数，防止报告过长
 
@@ -39,13 +48,43 @@ func (s *Scheduler) scanSensitiveWords(ctx context.Context, repoDir string) (hit
 		if err != nil {
 			return nil, configured, fmt.Errorf("git grep %q: %w", w.Original, err)
 		}
-		hits = append(hits, parseGrepOutput(w.Original, out)...)
+		hits = append(hits, parseSensitiveHits(w.Original, out)...)
 	}
 	return hits, configured, nil
 }
 
-// parseGrepOutput 解析 git grep -n 输出（file:line:content），按词聚合命中。
-func parseGrepOutput(word, out string) []sensitiveHit {
+func (s *ScanService) scanSensitiveReplacements(ctx context.Context, repoDir string) (hits []sensitiveReplacementHit, configured bool, err error) {
+	if s.sensitiveWords == nil || s.repoMgr == nil {
+		return nil, false, nil
+	}
+	words, err := s.sensitiveWords.ListReplace()
+	if err != nil {
+		return nil, false, err
+	}
+	for _, w := range words {
+		if w.Original == "" {
+			continue
+		}
+		configured = true
+		out, err := s.repoMgr.GitGrep(ctx, repoDir, w.Original)
+		if err != nil {
+			return nil, configured, fmt.Errorf("git grep %q: %w", w.Original, err)
+		}
+		for _, hit := range parseSensitiveHits(w.Original, out) {
+			hits = append(hits, sensitiveReplacementHit{
+				Original:    w.Original,
+				Replacement: w.Replacement,
+				File:        hit.File,
+				Line:        hit.Line,
+				Snippet:     hit.Snippet,
+			})
+		}
+	}
+	return hits, configured, nil
+}
+
+// parseSensitiveHits 解析 git grep -n 输出（file:line:content）。
+func parseSensitiveHits(word, out string) []sensitiveHit {
 	var hits []sensitiveHit
 	count := 0
 	for _, line := range strings.Split(out, "\n") {

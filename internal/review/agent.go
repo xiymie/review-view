@@ -18,7 +18,7 @@ import (
 // defaultMaxOutputTokens 默认输出 token 上限，覆盖 any-llm-go 的 4096 硬编码默认值
 const defaultMaxOutputTokens = 16000
 
-const maxToolOutputLen = 8 * 1024 // 8KB
+const maxToolOutputLen = 64 * 1024 // 64KB：给审计 Agent 足够上下文，避免频繁分批读取代码
 
 // maxAgentRounds agent loop 最大轮数，防止 context 无限增长
 const maxAgentRounds = 100
@@ -318,9 +318,6 @@ func (a *ReviewAgent) Review(ctx context.Context, params ReviewParams) (*ReviewR
 			if params.Restore != nil {
 				content = params.Restore(content)
 			}
-			if onChunk != nil {
-				onChunk(content)
-			}
 			return &ReviewResult{
 				Content:      content,
 				InputTokens:  totalInput,
@@ -442,9 +439,13 @@ func (a *ReviewAgent) executeToolCalls(ctx context.Context, params ReviewParams,
 		if len(output) > maxToolOutputLen {
 			output = output[:maxToolOutputLen] + "\n... (输出已截断)"
 		}
+		logOutput := output
+		if params.Replace != nil {
+			logOutput = params.Replace(logOutput)
+		}
 
 		// 合并为单条日志，避免 cache flush 导致 display log 丢失
-		onLog(params.OnLog, "info", formatToolDisplay(name, argsMap)+"\n"+formatToolResult(name, output))
+		onLog(params.OnLog, "info", formatToolDisplay(name, argsMap)+"\n"+formatToolResult(name, logOutput))
 
 		messages = append(messages, anyllm.Message{
 			Role:       anyllm.RoleTool,
@@ -625,11 +626,11 @@ func formatToolResult(name string, output string) string {
 		return fmt.Sprintf("执行失败 (%s)", strings.TrimSpace(output))
 	}
 
-	// 截断预览
+	// UI 日志仍保留上限，避免单条日志撑爆页面；但给足常见代码片段阅读空间。
 	preview := output
-	maxPreview := 200
+	maxPreview := 12 * 1024
 	if len(preview) > maxPreview {
-		preview = preview[:maxPreview] + "..."
+		preview = preview[:maxPreview] + "\n... (日志预览已截断，工具上下文最多保留 64KB)"
 	}
 
 	return fmt.Sprintf("返回结果 (%d 行)\n%s", lines, preview)

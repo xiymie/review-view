@@ -17,4 +17,16 @@ func TestLoadDefaults(t *testing.T) {
 	if cfg.DatabaseDSN != "file:review-view.db?_foreign_keys=on" {
 		t.Fatalf("expected default dsn, got %q", cfg.DatabaseDSN)
 	}
+	if cfg.ReviewWorkflowMode != "legacy" {
+		t.Fatalf("expected default workflow mode legacy, got %q", cfg.ReviewWorkflowMode)
+	}
+}
+
+func TestLoadReviewWorkflowMode(t *testing.T) {
+	t.Setenv("REVIEW_WORKFLOW_MODE", "eino")
+
+	cfg := config.Load()
+	if cfg.ReviewWorkflowMode != "eino" {
+		t.Fatalf("expected workflow mode eino, got %q", cfg.ReviewWorkflowMode)
+	}
 }

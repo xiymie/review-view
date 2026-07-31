@@ -13,15 +13,15 @@ type DashboardStats struct {
 	TodayCompletedCount int
 	FailedCount         int
 	// 新增
-	WeekFailedCount    int
-	WeekRiskCount      int
-	ModelCount         int
-	CredentialCount    int
-	ScanEnabledCount   int
+	WeekFailedCount  int
+	WeekRiskCount    int
+	ModelCount       int
+	CredentialCount  int
+	ScanEnabledCount int
 	// 仪表盘顶部新增
-	UserCount           int
-	SensitiveWordCount  int
-	ScanTotalCount      int // 所有巡检配置数量（非仅启用）
+	UserCount          int
+	SensitiveWordCount int
+	ScanTotalCount     int // 所有巡检配置数量（非仅启用）
 }
 
 type DashboardTaskItem struct {
@@ -32,15 +32,15 @@ type DashboardTaskItem struct {
 
 // ActivityItem 混合时间轴条目
 type ActivityItem struct {
-	Kind        string // "task" | "scan"
-	ID          int64
-	Title       string // 项目名 or 巡检名
-	SubTitle    string // commit range or "N分支有改动"
-	Status      string
-	HasRisk     bool
-	RiskCount   int
-	Time        time.Time
-	TimeAgo     string
+	Kind      string // "task" | "scan"
+	ID        int64
+	Title     string // 项目名 or 巡检名
+	SubTitle  string // commit range or "N分支有改动"
+	Status    string
+	HasRisk   bool
+	RiskCount int
+	Time      time.Time
+	TimeAgo   string
 }
 
 // HeatmapDay 热力图单天数据
@@ -51,10 +51,10 @@ type HeatmapDay struct {
 }
 
 type DashboardData struct {
-	Stats          DashboardStats
-	RecentTasks    []DashboardTaskItem
-	Activities     []ActivityItem
-	Heatmap        []HeatmapDay
+	Stats       DashboardStats
+	RecentTasks []DashboardTaskItem
+	Activities  []ActivityItem
+	Heatmap     []HeatmapDay
 }
 
 type DashboardService struct {
@@ -181,13 +181,7 @@ func (s *DashboardService) BuildForUser(userID int64, admin bool) (*DashboardDat
 					if job.TriggeredAt.Before(weekAgo) {
 						continue
 					}
-					if results, err4 := s.scanJobs.ListBranchResults(job.ID); err4 == nil {
-						for _, r := range results {
-							if r.HasRisk {
-								stats.WeekRiskCount++
-							}
-						}
-					}
+					stats.WeekRiskCount += job.RiskCount
 				}
 			}
 		}
@@ -255,14 +249,7 @@ func buildActivities(
 				if job.TriggeredAt.Before(since) {
 					continue
 				}
-				riskCount := 0
-				if results, err2 := scanJobs.ListBranchResults(job.ID); err2 == nil {
-					for _, r := range results {
-						if r.HasRisk {
-							riskCount++
-						}
-					}
-				}
+				riskCount := job.RiskCount
 				sub := "无改动分支"
 				if job.ChangedBranchCount > 0 {
 					sub = formatBranchCount(job.ChangedBranchCount, job.BranchCount)

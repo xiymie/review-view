@@ -5,15 +5,17 @@
 ## 特性
 
 - 🚀 **权限分离**：每位开发者拥有独立项目空间，自行管理仓库凭据，仅能操作自己创建的资源
-- 🤖 **多 LLM 支持**：OpenAI / Anthropic / Ollama / DeepSeek / Gemini / Mistral / Claude CLI
-- 📦 **项目管理**：支持全局和自定义 Prompt 叠加机制
-- 🔄 **灵活触发**：手动触发 + Webhook 自动触发
-- 🔍 **定时巡检**：定期扫描仓库所有分支，自动分析每日 commit 风险，报告上传 NAS
+- 🤖 **多 LLM 支持**：OpenAI / Anthropic / Ollama / DeepSeek / Gemini / Mistral / Claude CLI，以及兼容 OpenAI API 的服务
+- 🧠 **Eino Workflow**：Review 与 Scan 已抽象为可观测工作流节点，支持 legacy / Eino 渐进式切换
+- 🧩 **Review Skill Registry**：内置 13 个 Grok 风格审查 Skill，支持全局启用、项目绑定、本次审核选择，并预留 Agent / Registry / Tool / Policy / Workflow / Context / Memory 结构字段
+- 📦 **项目管理**：支持模型全局 Prompt、项目 Prompt、项目 CLAUDE.md、Skill Prompt 分层叠加
+- 🔄 **灵活触发**：项目页手动触发、指定 commit 范围触发、Webhook 自动触发
+- 🔍 **定时巡检**：定期扫描仓库所有分支，基于 checkpoint 分析新增 commit 和 diff 风险，报告上传 NAS
 - 📊 **仪表盘**：扫描项目总数 / 巡检项目总数 / 用户数量 / 敏感词数量 / 高风险分支，支持定时自动刷新
 - 📣 **结果推送**：扫描结果可配置推送邮件或企业微信机器人
-- 🔐 **敏感词管理**：支持敏感词替换绕过封禁，同时支持检测避免真实敏感信息泄露
-- 📈 **详细日志**：任务执行日志、Token 消耗统计（含缓存命中）
-- 🎨 **Commit 范围审核**：可选择指定 commit 范围进行 diff 审核
+- 🔐 **敏感词管理**：支持检测类敏感词和替换类敏感词；提交 AI 前自动替换，返回后还原，并在巡检日志中记录命中的词、文件和行号
+- 📈 **详细日志**：任务执行日志、工作流节点日志、工具调用日志、Token 消耗统计（含缓存命中）
+- 🎨 **现代化管理界面**：全宽自适应后台、卡片化配置页、任务/巡检详情双栏日志阅读体验
 
 ## 快速开始
 
@@ -55,6 +57,9 @@ export APP_ADDR=:18083
 
 # 数据库路径（默认 SQLite）
 export DATABASE_DSN="file:review-view.db?_foreign_keys=on"
+
+# Review workflow 模式：legacy（默认）或 eino
+export REVIEW_WORKFLOW_MODE=legacy
 ```
 
 ### 使用流程
@@ -62,9 +67,10 @@ export DATABASE_DSN="file:review-view.db?_foreign_keys=on"
 1. 访问 `http://localhost:18083`
 2. 在「模型配置」中添加 LLM 配置（API Key 或 CLI 模式）
 3. 在「仓库凭据」中添加私有仓库认证（可选）
-4. 在「项目」中创建项目，关联 Git 仓库和模型
-5. 手动触发审核或配置 Webhook 自动触发
-6. （可选）在「巡检配置」中设置定时扫描仓库分支
+4. 在「Review Skill」中启用可用 Skill，并在项目中选择默认 Skill
+5. 在「项目」中创建项目，关联 Git 仓库、模型、项目 Prompt 和 Skill
+6. 手动触发审核时可再次选择本次使用的 Skill，也可配置 Webhook 自动触发
+7. （可选）在「巡检配置」中设置定时扫描仓库分支
 
 ## 架构
 
@@ -103,16 +109,37 @@ review-view/
 
 ### 代码审查（Code Review）
 
-- 支持多项目、多分支
-- 自定义 Review Prompt（项目级追加在模型全局 Prompt 之后）
+- 支持多项目、多分支、指定 commit 范围审核
+- 支持 `REVIEW_WORKFLOW_MODE=legacy|eino`，默认保持 legacy，Eino 模式使用节点化 Review Workflow
+- Prompt 分层顺序：本次任务选择的 Skill Prompt → 模型全局 Prompt → 项目自定义 Prompt → 项目 `CLAUDE.md` → commit / diff 上下文
+- Review Skill 是“全局可用池 + 项目默认选择 + 本次任务选择”，未选择则不注入
+- 支持运行中流式输出、右侧 sticky 执行日志、Diff / Commit / Review 结果分栏查看
 - 溢出策略：排队等待 / 拒绝新任务
 - 任务超时配置（项目级 > 全局）
+
+### Review Skill Registry
+
+- 内置 13 个 Grok 风格审查 Skill，Prompt 保持英文原文，展示名称和简介本地化
+- Skill 默认关闭，启用后进入全局候选池；项目可绑定默认 Skill，触发审核时可临时增减本次 Skill
+- 当前执行逻辑保持简单可靠：多个 Skill 合并为一个 Skill Prompt，一次模型调用输出一份结果
+- 数据结构已预留官方式扩展字段，便于后续实现 Skill Selector / Multi-Agent / 图模式执行：
+  - `agent_xml`
+  - `skill_registry_xml`
+  - `tool_registry_xml`
+  - `policy_md`
+  - `workflow_md`
+  - `context_schema_json`
+  - `memory_schema_json`
+  - `metadata_json`
 
 ### 定时巡检（Scan）
 
 - 定时扫描仓库所有活跃分支，按增量 checkpoint 判断是否有新 commit
-- 两段式 LLM 分析：先轻量分析 commit message，必要时拉取 diff 深度分析
-- 分支风险评级（高 / 中 / 低 / 无风险）
+- 单次 LLM 调用始终结合 commit message + diff + CLAUDE.md，避免只看提交信息造成误判
+- Prompt 分层顺序：项目 Skill Prompt → 全局巡检 Prompt → 项目自定义 Prompt → 巡检配置 Prompt → `CLAUDE.md` → commit 信息 → diff 代码
+- 高风险判定要求结合调用链、上游校验、配置和项目约定复核，减少单函数误报
+- 分支风险评级（高 / 中 / 低 / 无风险），并将风险数量汇总到 ScanJob，避免仪表盘 N+1 查询
+- Workflow 日志记录 Skill、Prompt、CLAUDE.md、diff、AI 调用、风险等级、敏感词替换命中情况
 - 报告自动上传到 NAS（WebDAV），按保留天数自动清理旧报告
 - 支持巡检完成后推送通知
 
@@ -162,11 +189,11 @@ curl -X POST http://localhost:18083/webhook/{projectId} \
 
 ### 审核结果
 
-任务详情页提供三个 Tab：
+任务详情页采用左右双栏布局：
 
-- **Review**：LLM 审查结果（Markdown 渲染，运行中实时流式展示）
-- **Diff**：代码变更内容，格式化展示
-- **日志**：执行日志，含 Token 消耗统计（输入/输出/缓存命中/缓存写入）
+- **左侧结果区**：Review 结果、Diff、Commit 记录撑满页面可用高度，支持独立滚动
+- **右侧执行日志**：sticky 日志面板，运行中自动滚动到底，历史任务可手动滚动查看
+- **日志内容**：工作流节点、仓库同步、Skill 注入、Prompt 构建、CLAUDE.md、AI 调用、敏感词命中、Token 消耗统计
 
 ## 开发
 
@@ -303,6 +330,14 @@ server {
     }
 }
 ```
+
+### macOS LaunchAgent
+
+项目内置的 `deploy.sh` 可用于部署到 macOS LaunchAgent 环境。注意：
+
+- `go-sqlite3` 需要 `CGO_ENABLED=1`
+- macOS Ventura+ 推荐使用 `launchctl bootout/bootstrap`，不要再使用旧的 `unload/load`
+- plist 路径必须使用远程用户的绝对路径，例如 `/Users/user/Library/LaunchAgents/com.app.review_app.plist`，避免本机 `$HOME` 提前展开导致 `Bootstrap failed: 5`
 
 ## 常见问题
 

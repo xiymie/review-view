@@ -16,6 +16,10 @@ type ProjectStore interface {
 	RecoverInitializing() (int64, error)
 	ListCronEnabled() ([]*model.Project, error)
 	UpdateNextRunAt(id int64, t *time.Time) error
+	// SetSkills 替换项目关联的 ReviewSkill ID 列表（空列表表示清空）
+	SetSkills(projectID int64, skillIDs []int64) error
+	// ListSkillIDs 返回项目已选的 ReviewSkill ID 列表
+	ListSkillIDs(projectID int64) ([]int64, error)
 }
 
 type ModelConfigStore interface {
@@ -89,9 +93,22 @@ type ScanJobStore interface {
 	Delete(id int64) error
 	GetByID(id int64) (*model.ScanJob, error)
 	ListBySchedule(scheduleID int64, limit int) ([]model.ScanJob, error)
+	HasRunningBySchedule(scheduleID int64) (bool, error)
 	ListBranchResults(jobID int64) ([]model.ScanBranchResult, error)
 	CreateBranchResult(*model.ScanBranchResult) error
+	AppendJobLog(jobID int64, level model.ScanJobLogLevel, message string) error
+	ListJobLogs(jobID int64) ([]model.ScanJobLog, error)
 	ListJobsOlderThan(scheduleID int64, before time.Time) ([]model.ScanJob, error)
+}
+
+type ReviewSkillStore interface {
+	Create(*model.ReviewSkill) error
+	Update(*model.ReviewSkill) error
+	Delete(id int64) error
+	GetByID(id int64) (*model.ReviewSkill, error)
+	List() ([]model.ReviewSkill, error)
+	ListEnabled() ([]model.ReviewSkill, error)
+	GetByName(name string) (*model.ReviewSkill, error)
 }
 
 type UserStore interface {

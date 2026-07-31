@@ -48,6 +48,10 @@ func NewServer(cfg config.Config) (*Server, error) {
 	taskService := service.NewTaskService(stores.Projects, stores.ModelConfigs, stores.Tasks, repoManager, stores.Credentials, settingsService)
 	logBuffer := service.NewTaskCache(stores.Tasks)
 	sensitiveWordService := service.NewSensitiveWordService(stores.SensitiveWords)
+	reviewSkillService := service.NewReviewSkillService(stores.ReviewSkills)
+	if err := reviewSkillService.EnsureBuiltIns(); err != nil {
+		return nil, err
+	}
 	scheduler := service.NewScheduler(
 		stores.Projects,
 		stores.ModelConfigs,
@@ -61,6 +65,10 @@ func NewServer(cfg config.Config) (*Server, error) {
 		5,
 		sensitiveWordService,
 	)
+	scheduler.SetReviewSkillService(reviewSkillService)
+	if err := scheduler.SetReviewWorkflowMode(cfg.ReviewWorkflowMode); err != nil {
+		return nil, err
+	}
 	scheduler.SetTaskService(taskService)
 
 	// 构建推送 notifier：通过闭包每次发送时动态读取 SMTP 配置，支持运行时修改
@@ -86,6 +94,9 @@ func NewServer(cfg config.Config) (*Server, error) {
 		stores.Credentials,
 		settingsService,
 		repoManager,
+		stores.Projects,
+		reviewSkillService,
+		sensitiveWordService,
 	)
 	scanScheduler := service.NewScanScheduler(scanService, stores.ScanSchedules, settingsService)
 
@@ -99,6 +110,7 @@ func NewServer(cfg config.Config) (*Server, error) {
 		Credentials:    handler.NewCredentialHandler(credentialService, stores.Users),
 		Auth:           handler.NewAuthHandler(stores.Users),
 		SensitiveWords: handler.NewSensitiveWordHandler(sensitiveWordService),
+		ReviewSkills:   handler.NewReviewSkillHandler(reviewSkillService),
 		Users:          handler.NewUserHandler(stores.Users, settingsService),
 		Scan:           handler.NewScanHandler(scanService, settingsService, stores.ModelConfigs, stores.Credentials),
 	})

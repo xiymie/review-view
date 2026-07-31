@@ -51,19 +51,21 @@
 
         <el-table-column label="操作" width="90" fixed="right">
           <template #default="{ row }">
-            <el-button link type="primary" size="small" @click="openDrawer(row)">配置</el-button>
+            <el-button link type="primary" size="small" @click="openDialog(row)">配置</el-button>
           </template>
         </el-table-column>
       </el-table>
     </div>
 
-    <!-- Config Drawer -->
-    <el-drawer
-      v-model="drawerVisible"
+    <!-- Config Dialog -->
+    <el-dialog
+      v-model="dialogVisible"
       :title="`定时扫描配置 · ${editingProject?.name}`"
-      direction="rtl"
-      size="420px"
+      width="620px"
+      class="schedule-dialog"
       :close-on-click-modal="false"
+      destroy-on-close
+      align-center
     >
       <div class="drawer-body" v-if="editingProject">
         <!-- Enable switch -->
@@ -123,11 +125,11 @@
 
       <template #footer>
         <div class="drawer-footer">
-          <el-button @click="drawerVisible = false">取消</el-button>
+          <el-button @click="dialogVisible = false">取消</el-button>
           <el-button type="primary" :loading="saving" @click="save">保存</el-button>
         </div>
       </template>
-    </el-drawer>
+    </el-dialog>
   </div>
 </template>
 
@@ -139,7 +141,7 @@ import { listProjects, updateProjectSchedule } from '../../api/projects'
 
 const projects = ref([])
 const loading = ref(false)
-const drawerVisible = ref(false)
+const dialogVisible = ref(false)
 const saving = ref(false)
 const editingProject = ref(null)
 const isCustom = ref(false)
@@ -197,14 +199,14 @@ async function loadProjects() {
   }
 }
 
-function openDrawer(project) {
+function openDialog(project) {
   editingProject.value = project
   form.value = {
     cron_enabled: project.cron_enabled || false,
     cron_expression: project.cron_expression || '',
   }
   isCustom.value = !presets.some(p => p.expr === form.value.cron_expression)
-  drawerVisible.value = true
+  dialogVisible.value = true
 }
 
 function applyPreset(expr) {
@@ -239,7 +241,7 @@ async function save() {
       editingProject.value = projects.value[idx]
     }
     ElMessage.success('保存成功')
-    drawerVisible.value = false
+    dialogVisible.value = false
   } catch (err) {
     ElMessage.error(err.response?.data?.message || '保存失败')
   } finally {
@@ -345,7 +347,7 @@ onMounted(loadProjects)
 .pill-init-failed  { background: #fee2e2; color: #991b1b; }
 .pill-default    { background: #f1f5f9; color: #64748b; }
 
-/* Drawer */
+/* Dialog */
 .drawer-body {
   padding: 8px 4px;
   display: flex;
@@ -439,4 +441,6 @@ onMounted(loadProjects)
   justify-content: flex-end;
   gap: 8px;
 }
+:deep(.schedule-dialog .el-dialog) { border-radius: 22px !important; overflow: hidden; }
+:deep(.schedule-dialog .el-dialog__body) { background: #f8fafc; }
 </style>

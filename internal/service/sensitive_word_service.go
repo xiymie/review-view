@@ -24,6 +24,11 @@ func (s *SensitiveWordService) ListDetect() ([]model.SensitiveWord, error) {
 	return s.store.ListByType(model.SensitiveWordTypeDetect)
 }
 
+// ListReplace 返回所有替换类型的敏感词。
+func (s *SensitiveWordService) ListReplace() ([]model.SensitiveWord, error) {
+	return s.store.ListByType(model.SensitiveWordTypeReplace)
+}
+
 func normalizeType(t string) string {
 	if t == model.SensitiveWordTypeDetect {
 		return model.SensitiveWordTypeDetect

@@ -49,6 +49,9 @@
           <router-link class="nav-item" :class="{ active: activeMenu === '/sensitive-words' }" to="/sensitive-words">
             <el-icon><Filter /></el-icon><span>敏感词管理</span>
           </router-link>
+          <router-link class="nav-item" :class="{ active: activeMenu === '/review-skills' }" to="/review-skills">
+            <el-icon><MagicStick /></el-icon><span>Review Skill</span>
+          </router-link>
           <router-link class="nav-item" :class="{ active: activeMenu === '/settings' }" to="/settings">
             <el-icon><Setting /></el-icon><span>设置</span>
           </router-link>
@@ -118,7 +121,7 @@ import { useRoute, useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import {
   DataBoard, FolderOpened, Cpu, Key,
-  List, Setting, SwitchButton, Filter, UserFilled, Document, Timer, Bell, Search,
+  List, Setting, SwitchButton, Filter, UserFilled, Document, Timer, Bell, Search, MagicStick,
 } from '@element-plus/icons-vue'
 import { getMe, updateMe } from '../api/users'
 
@@ -199,7 +202,7 @@ async function saveProfile() {
 <style scoped>
 .app-layout {
   height: 100vh;
-  background: #f8fafc;
+  background: #f5f7fb;
 }
 
 /* ── Sidebar ── */
@@ -359,6 +362,6 @@ async function saveProfile() {
 .main-content {
   overflow-y: auto;
   padding: 0;
-  background: #f8fafc;
+  background: #f5f7fb;
 }
 </style>

@@ -159,6 +159,7 @@ func (h *ProjectHandler) APICreate(c *gin.Context) {
 		RepoCredentialID *int64                 `json:"repo_credential_id"`
 		CronExpression   string                 `json:"cron_expression"`
 		CronEnabled      bool                   `json:"cron_enabled"`
+		SkillIDs         []int64                `json:"skill_ids"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"message": err.Error()})
@@ -185,6 +186,13 @@ func (h *ProjectHandler) APICreate(c *gin.Context) {
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"message": err.Error()})
 		return
+	}
+
+	if req.SkillIDs != nil {
+		if err := h.projects.SetSkills(project.ID, req.SkillIDs); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"message": err.Error()})
+			return
+		}
 	}
 
 	c.JSON(http.StatusCreated, gin.H{
@@ -217,6 +225,7 @@ func (h *ProjectHandler) APIUpdate(c *gin.Context) {
 		RepoCredentialID *int64                 `json:"repo_credential_id"`
 		CronExpression   string                 `json:"cron_expression"`
 		CronEnabled      bool                   `json:"cron_enabled"`
+		SkillIDs         []int64                `json:"skill_ids"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"message": err.Error()})
@@ -242,6 +251,13 @@ func (h *ProjectHandler) APIUpdate(c *gin.Context) {
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"message": err.Error()})
 		return
+	}
+
+	if req.SkillIDs != nil {
+		if err := h.projects.SetSkills(id, req.SkillIDs); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"message": err.Error()})
+			return
+		}
 	}
 
 	c.JSON(http.StatusOK, gin.H{
@@ -285,8 +301,9 @@ func (h *ProjectHandler) APITrigger(c *gin.Context) {
 	}
 
 	var req struct {
-		FromCommit string `json:"from_commit"`
-		ToCommit   string `json:"to_commit"`
+		FromCommit string  `json:"from_commit"`
+		ToCommit   string  `json:"to_commit"`
+		SkillIDs   []int64 `json:"skill_ids"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"message": err.Error()})
@@ -298,6 +315,7 @@ func (h *ProjectHandler) APITrigger(c *gin.Context) {
 		TriggeredBy:  model.TaskTriggeredByManual,
 		TargetCommit: req.ToCommit,
 		FromCommit:   req.FromCommit,
+		SkillIDs:     req.SkillIDs,
 	})
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"message": err.Error()})
@@ -334,6 +352,62 @@ func (h *ProjectHandler) APIInitialize(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{"message": "ok"})
+}
+
+// APIGetSkills GET /api/projects/:id/skills — 返回项目已选 ReviewSkill ID 列表
+func (h *ProjectHandler) APIGetSkills(c *gin.Context) {
+	id, _ := strconv.ParseInt(c.Param("id"), 10, 64)
+
+	project, err := h.projects.Get(id)
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"message": err.Error()})
+		return
+	}
+	if !isAdmin(c) && project.CreatedBy != callerUID(c) {
+		c.JSON(http.StatusForbidden, gin.H{"message": "无权访问"})
+		return
+	}
+
+	skillIDs, err := h.projects.ListSkillIDs(id)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"message": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"skill_ids": skillIDs})
+}
+
+// APISetSkills PUT /api/projects/:id/skills — 替换项目的 ReviewSkill 选择
+func (h *ProjectHandler) APISetSkills(c *gin.Context) {
+	id, _ := strconv.ParseInt(c.Param("id"), 10, 64)
+
+	project, err := h.projects.Get(id)
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"message": err.Error()})
+		return
+	}
+	if !isAdmin(c) && project.CreatedBy != callerUID(c) {
+		c.JSON(http.StatusForbidden, gin.H{"message": "无权操作"})
+		return
+	}
+
+	var req struct {
+		SkillIDs []int64 `json:"skill_ids"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"message": err.Error()})
+		return
+	}
+	if req.SkillIDs == nil {
+		req.SkillIDs = []int64{}
+	}
+
+	if err := h.projects.SetSkills(id, req.SkillIDs); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"message": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"skill_ids": req.SkillIDs})
 }
 
 func (h *ProjectHandler) APIUpdateSchedule(c *gin.Context) {

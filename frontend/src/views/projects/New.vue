@@ -134,10 +134,41 @@
           </div>
         </section>
 
-        <!-- 04 自定义 Prompt（可折叠） -->
+
+        <!-- 04 Review Skill（可选） -->
+        <section class="form-section">
+          <div class="section-label"><span class="section-num">04</span>Review Skill <el-tag size="small" type="info" effect="plain" style="margin-left:8px">可选</el-tag></div>
+          <el-form-item prop="skill_ids">
+            <el-select
+              v-model="form.skill_ids"
+              multiple
+              clearable
+              collapse-tags
+              collapse-tags-tooltip
+              placeholder="不选择则不注入任何 Skill"
+              style="width:100%"
+              size="large"
+            >
+              <el-option
+                v-for="skill in enabledReviewSkills"
+                :key="skill.id"
+                :label="skill.name"
+                :value="skill.id"
+              >
+                <div class="skill-option">
+                  <span class="skill-option-name">{{ skill.name }}</span>
+                  <span class="skill-option-desc">{{ skill.description }}</span>
+                </div>
+              </el-option>
+            </el-select>
+            <div class="field-hint">Review Skill 是全局可用池；项目只注入这里选择的 Skill。未选择时，不注入任何 Skill。</div>
+          </el-form-item>
+        </section>
+
+        <!-- 05 自定义 Prompt（可折叠） -->
         <section class="form-section">
           <div class="section-label collapsible" @click="showPrompt = !showPrompt">
-            <span class="section-num">04</span>自定义 Prompt
+            <span class="section-num">05</span>自定义 Prompt
             <el-tag size="small" type="info" effect="plain" style="margin-left:8px">可选</el-tag>
             <div class="prompt-tabs" v-if="showPrompt" @click.stop>
               <span :class="['prompt-tab', promptTab === 'edit' && 'active']" @click="promptTab = 'edit'">编辑</span>
@@ -195,7 +226,7 @@
         <div class="tip-card accent">
           <div class="tip-icon">✨</div>
           <h4>Prompt 叠加机制</h4>
-          <p>模型全局 Prompt + 项目自定义 Prompt 共同生效</p>
+          <p>项目选择的 Skill + 模型全局 Prompt + 项目自定义 Prompt 共同生效</p>
           <p style="margin-top:6px">全局 Prompt 定义通用审查规则，项目 Prompt 补充项目背景和专项要求。</p>
         </div>
       </aside>
@@ -226,7 +257,7 @@ import { useRouter, useRoute } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { ArrowLeft, ArrowDown, EditPen, Link, Key, Share, Select, FolderAdd, FullScreen } from '@element-plus/icons-vue'
 import { marked } from 'marked'
-import { listModels, listCredentials, getProject, createProject } from '../../api/projects'
+import { listModels, listCredentials, getProject, createProject, listReviewSkills, getProjectSkills } from '../../api/projects'
 
 const router = useRouter()
 const route = useRoute()
@@ -240,15 +271,17 @@ const initLoading = ref(false)
 const showPrompt = ref(false)
 const models = ref([])
 const credentials = ref([])
+const reviewSkills = ref([])
 const promptTab = ref('preview')
 const fsTab = ref('preview')
 const promptFullscreen = ref(false)
 const renderedPrompt = computed(() => form.value.custom_prompt ? marked.parse(form.value.custom_prompt) : '')
+const enabledReviewSkills = computed(() => reviewSkills.value.filter(s => s.enabled))
 
 const form = ref({
   name: '', repo_url: '', repo_credential_id: null,
   branch: 'main', model_config_id: null,
-  custom_prompt: '', overflow_strategy: 'queue', task_timeout: 30,
+  custom_prompt: '', overflow_strategy: 'queue', task_timeout: 30, skill_ids: [],
 })
 
 const rules = {
@@ -261,9 +294,10 @@ const rules = {
 onMounted(async () => {
   initLoading.value = true
   try {
-    const [modelsRes, credsRes] = await Promise.all([listModels(), listCredentials()])
+    const [modelsRes, credsRes, skillsRes] = await Promise.all([listModels(), listCredentials(), listReviewSkills()])
     models.value = modelsRes.data
     credentials.value = credsRes.data
+    reviewSkills.value = skillsRes.data || []
   } catch (err) {
     ElMessage.error(err.response?.data?.message || '加载选项失败')
   } finally {
@@ -283,7 +317,12 @@ onMounted(async () => {
         custom_prompt: p.custom_prompt,
         overflow_strategy: p.overflow_strategy,
         task_timeout: p.task_timeout,
+        skill_ids: [],
       }
+      try {
+        const skillRes = await getProjectSkills(cloneFrom.value)
+        form.value.skill_ids = skillRes.data?.skill_ids || []
+      } catch {}
       if (p.custom_prompt) showPrompt.value = true
     } catch (err) {
       ElMessage.error(err.response?.data?.message || '加载克隆源失败')
@@ -383,6 +422,10 @@ async function handleSubmit() {
 .span-full { grid-column: 1 / -1; }
 
 .field-hint { font-size: 12px; color: #9ca3af; margin-top: 5px; display: flex; align-items: center; gap: 2px; }
+.skill-option { display:flex; align-items:center; gap:10px; min-width:0; }
+.skill-option-name { font-weight:650; color:#0f172a; flex-shrink:0; }
+.skill-option-desc { color:#94a3b8; font-size:12px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+
 
 /* 凭据下拉选项 */
 .cred-option { display: flex; align-items: center; gap: 8px; }

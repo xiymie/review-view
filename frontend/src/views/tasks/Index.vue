@@ -17,10 +17,10 @@
     </div>
 
     <!-- 统计 -->
-    <div class="stat-row" :class="{ 'stat-in': mounted }">
-      <div class="stat-item" v-for="(s, i) in stats" :key="s.label" :style="{'--dot': s.color, '--delay': `${i * 60}ms`}">
-        <span class="stat-num" :style="{ color: s.color }">{{ displayStats[i] }}</span>
-        <span class="stat-lbl">{{ s.label }}</span>
+    <div class="summary-row" :class="{ 'summary-in': mounted }">
+      <div class="summary-card" v-for="(s, i) in stats" :key="s.label" :style="{'--accent': s.color, '--delay': `${i * 60}ms`}">
+        <span class="summary-label">{{ s.label }}</span>
+        <strong>{{ displayStats[i] }}</strong>
       </div>
     </div>
 
@@ -98,15 +98,11 @@
         <el-table-column label="操作" width="200">
           <template #default="{ row }">
             <div class="action-cell">
-              <el-button link type="primary" size="small" @click="router.push(`/tasks/${row.id}`)">查看</el-button>
-              <span class="sep">·</span>
-              <el-button v-if="row.status === 'running'" link type="warning" size="small" @click="cancelTask(row)">取消</el-button>
-              <el-button v-if="row.status === 'failed' || row.status === 'cancelled'" link type="primary" size="small" @click="retryTask(row)">重试</el-button>
-              <el-button v-if="row.status === 'completed'" link type="primary" size="small" @click="rescanTask(row)">再次扫描</el-button>
-              <template v-if="!['running','pending'].includes(row.status)">
-                <span class="sep">·</span>
-                <el-button link type="danger" size="small" @click="handleDelete(row)">删除</el-button>
-              </template>
+              <el-button class="op-btn" type="primary" plain size="small" @click="router.push(`/tasks/${row.id}`)">查看</el-button>
+              <el-button v-if="row.status === 'running'" class="op-btn" type="warning" plain size="small" @click="cancelTask(row)">取消</el-button>
+              <el-button v-if="row.status === 'failed' || row.status === 'cancelled'" class="op-btn" type="primary" plain size="small" @click="retryTask(row)">重试</el-button>
+              <el-button v-if="row.status === 'completed'" class="op-btn" type="primary" plain size="small" @click="rescanTask(row)">再次扫描</el-button>
+              <el-button v-if="!['running','pending'].includes(row.status)" class="op-btn" type="danger" plain size="small" @click="handleDelete(row)">删除</el-button>
             </div>
           </template>
         </el-table-column>
@@ -268,36 +264,30 @@ const handleDelete = async (row) => {
 .c1 { width: 180px; height: 180px; right: -40px; top: -60px; }
 .c2 { width: 100px; height: 100px; right: 60px; bottom: -30px; }
 
-/* 统计行 */
-.stat-row {
-  display: flex;
-  gap: 28px;
-  margin: 20px 36px 12px;
+/* 统计卡片 */
+.summary-row {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 14px;
+  margin: 20px 36px 14px;
   opacity: 0;
   transform: translateY(8px);
   transition: opacity 0.4s ease, transform 0.4s ease;
 }
-.stat-row.stat-in {
-  opacity: 1;
-  transform: translateY(0);
-}
-.stat-item {
+.summary-row.summary-in { opacity: 1; transform: translateY(0); }
+.summary-card {
+  background: #fff;
+  border: 1px solid #e2e8f0;
+  border-radius: 18px;
+  padding: 14px 18px;
   display: flex;
-  align-items: baseline;
-  gap: 7px;
+  justify-content: space-between;
+  align-items: center;
+  box-shadow: var(--sh-card);
+  border-top: 3px solid var(--accent);
 }
-.stat-item::before {
-  content: '';
-  display: inline-block;
-  width: 7px;
-  height: 7px;
-  border-radius: 50%;
-  background: var(--dot);
-  flex-shrink: 0;
-  margin-bottom: 1px;
-}
-.stat-num  { font-size: 26px; font-weight: 800; font-variant-numeric: tabular-nums; }
-.stat-lbl  { font-size: 13px; color: #64748b; }
+.summary-label { color: #64748b; font-size: 13px; }
+.summary-card strong { color: var(--accent); font-size: 24px; font-weight: 800; font-variant-numeric: tabular-nums; }
 
 /* 筛选栏 */
 .filter-bar {
@@ -305,6 +295,11 @@ const handleDelete = async (row) => {
   align-items: center;
   gap: 10px;
   margin: 0 36px 14px;
+  background: #fff;
+  border: 1px solid #e2e8f0;
+  border-radius: 16px;
+  padding: 12px 14px;
+  box-shadow: var(--sh-card);
 }
 .filter-count { font-size: 13px; color: #94a3b8; margin-left: auto; }
 
@@ -312,9 +307,10 @@ const handleDelete = async (row) => {
 .table-wrap {
   background: #fff;
   border: 1px solid #e8edf4;
-  border-radius: 10px;
+  border-radius: 16px;
   overflow: hidden;
   margin: 0 36px 24px;
+  box-shadow: var(--sh-card);
 }
 
 /* 行内元素 */
@@ -392,7 +388,14 @@ const handleDelete = async (row) => {
 .owner-tag { font-size: 12.5px; color: #6366f1; font-weight: 500; }
 
 /* 操作列 */
-.action-cell { display: flex; align-items: center; gap: 3px; white-space: nowrap; }
+.action-cell { display: flex; align-items: center; gap: 8px; white-space: nowrap; }
+.action-cell :deep(.op-btn) { font-weight: 650; opacity: 1 !important; visibility: visible !important; background: #fff !important; }
+.action-cell :deep(.el-button--primary) { color: #2563eb !important; border-color: #2563eb !important; }
+.action-cell :deep(.el-button--primary:hover) { background: #eff6ff !important; }
+.action-cell :deep(.el-button--warning) { color: #d97706 !important; border-color: #f59e0b !important; }
+.action-cell :deep(.el-button--warning:hover) { background: #fffbeb !important; }
+.action-cell :deep(.el-button--danger) { color: #dc2626 !important; border-color: #ef4444 !important; }
+.action-cell :deep(.el-button--danger:hover) { background: #fef2f2 !important; }
 .sep { color: #e2e8f0; font-size: 12px; }
 
 /* 空状态 */
